@@ -28,3 +28,32 @@ export async function createMention(payload: Record<string, unknown>) {
   const { data } = await api.post("/api/mentions", payload);
   return data;
 }
+
+export async function fetchKeywords(activeOnly = false) {
+  const { data } = await api.get("/api/keywords", { params: activeOnly ? { active_only: true } : {} });
+  return data;
+}
+
+export async function fetchKeywordStats() {
+  const { data } = await api.get("/api/keywords/stats");
+  return data;
+}
+
+export async function createKeyword(payload: { word: string; category?: string; is_negative?: boolean }) {
+  const { data } = await api.post("/api/keywords", payload);
+  return data;
+}
+
+export async function deleteKeyword(id: number) {
+  await api.delete(`/api/keywords/${id}`);
+}
+
+export async function fetchChannels() {
+  const { data } = await api.get("/api/channels");
+  return data;
+}
+
+export async function updateChannel(id: number, payload: Record<string, unknown>) {
+  const { data } = await api.patch(`/api/channels/${id}`, payload);
+  return data;
+}

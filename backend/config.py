@@ -1,4 +1,7 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings
+
+_HERE = Path(__file__).parent
 
 
 class Settings(BaseSettings):
@@ -13,7 +16,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
     class Config:
-        env_file = ".env"
+        env_file = [str(_HERE / ".env"), ".env", "backend/.env"]
 
 
 settings = Settings()

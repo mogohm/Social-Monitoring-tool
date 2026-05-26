@@ -1,23 +1,37 @@
 "use client";
 import { useEffect, useState } from "react";
-import { fetchStats, fetchTrend } from "@/lib/api";
+import { fetchStats, fetchTrend, fetchKeywordStats } from "@/lib/api";
 import KPICard from "@/components/KPICard";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, ResponsiveContainer, Legend,
+  BarChart, Bar,
 } from "recharts";
-import { MessageSquare, ThumbsUp, ThumbsDown, TrendingUp, Zap, Activity } from "lucide-react";
+import { MessageSquare, ThumbsUp, ThumbsDown, TrendingUp, Zap, Activity, Tag, Hash } from "lucide-react";
+import Link from "next/link";
 
 const COLORS = ["#16a34a", "#94a3b8", "#dc2626"];
+const CAT_COLOR: Record<string, string> = {
+  brand:      "bg-blue-100 text-blue-800 border-blue-200",
+  product:    "bg-purple-100 text-purple-800 border-purple-200",
+  competitor: "bg-orange-100 text-orange-800 border-orange-200",
+  crisis:     "bg-red-100 text-red-800 border-red-200",
+  campaign:   "bg-green-100 text-green-800 border-green-200",
+  general:    "bg-gray-100 text-gray-700 border-gray-200",
+};
+
+interface KeywordStat { id: number; word: string; category: string; is_negative: boolean; match_count: number; mention_count: number; }
 
 export default function OverviewPage() {
-  const [stats, setStats] = useState<Record<string, number | { channel: string; count: number }[]> | null>(null);
-  const [trend, setTrend] = useState<{ date: string; positive: number; neutral: number; negative: number }[]>([]);
+  const [stats,    setStats]    = useState<Record<string, number | { channel: string; count: number }[]> | null>(null);
+  const [trend,    setTrend]    = useState<{ date: string; positive: number; neutral: number; negative: number }[]>([]);
+  const [kwStats,  setKwStats]  = useState<KeywordStat[]>([]);
   const [days, setDays] = useState(7);
 
   useEffect(() => {
     fetchStats(days).then(setStats).catch(() => {});
     fetchTrend(days).then(setTrend).catch(() => {});
+    fetchKeywordStats().then(setKwStats).catch(() => {});
   }, [days]);
 
   const sentimentPie = stats
@@ -113,11 +127,74 @@ export default function OverviewPage() {
           <h2 className="text-base font-bold text-gray-900 mb-4">Top Channels</h2>
           <div className="flex flex-wrap gap-3">
             {(stats.channels as { channel: string; count: number }[]).map((c) => (
-              <div key={c.channel} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2">
+              <Link key={c.channel} href={`/mentions?channel=${c.channel}`}
+                className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 hover:border-blue-300 hover:bg-blue-50 transition-colors cursor-pointer">
                 <span className="text-sm font-bold text-gray-800 capitalize">{c.channel}</span>
                 <span className="text-xs font-semibold text-gray-600 bg-gray-200 px-2 py-0.5 rounded-full">{c.count.toLocaleString()}</span>
-              </div>
+              </Link>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Keyword Performance */}
+      {kwStats.length > 0 && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Bar chart */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <Tag size={15} className="text-blue-600" /> Keyword Match Volume
+              </h2>
+              <Link href="/keywords" className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline">
+                Manage →
+              </Link>
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart
+                data={kwStats.slice(0, 8).map((k) => ({ name: k.word, count: k.mention_count ?? k.match_count, negative: k.is_negative }))}
+                layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 12, fill: "#374151", fontWeight: 600 }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: "#374151", fontWeight: 700 }} width={90} />
+                <Tooltip
+                  contentStyle={{ fontSize: 13, fontWeight: 600 }}
+                  formatter={(val) => [`${val} mentions`, "Matches"]}
+                />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                  {kwStats.slice(0, 8).map((k, i) => (
+                    <Cell key={i} fill={k.is_negative ? "#dc2626" : "#3b82f6"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="flex items-center gap-4 mt-2 text-xs font-semibold text-gray-600">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-500 inline-block" />Monitor keyword</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-500 inline-block" />Negative keyword</span>
+            </div>
+          </div>
+
+          {/* Keyword chip grid */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <h2 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Hash size={15} className="text-blue-600" /> Keywords ที่กำลัง Monitor
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {kwStats.map((kw) => (
+                <Link
+                  key={kw.id}
+                  href={`/mentions?keyword=${encodeURIComponent(kw.word)}`}
+                  className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-xl font-bold border cursor-pointer hover:shadow-sm transition-shadow ${CAT_COLOR[kw.category] || CAT_COLOR.general}`}
+                >
+                  #{kw.word}
+                  <span className="text-xs font-extrabold bg-white/70 px-1.5 py-0.5 rounded-md ml-1">
+                    {(kw.mention_count ?? kw.match_count).toLocaleString()}
+                  </span>
+                  {kw.is_negative && <span className="text-red-500 font-extrabold">⚠</span>}
+                </Link>
+              ))}
+            </div>
+            <p className="text-xs font-semibold text-gray-500 mt-4">กดที่ keyword เพื่อดู mentions ที่เกี่ยวข้อง</p>
           </div>
         </div>
       )}

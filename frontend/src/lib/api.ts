@@ -57,3 +57,13 @@ export async function updateChannel(id: number, payload: Record<string, unknown>
   const { data } = await api.patch(`/api/channels/${id}`, payload);
   return data;
 }
+
+export async function retagKeywords() {
+  const { data } = await api.post("/api/mentions/retag-keywords");
+  return data;
+}
+
+export async function fetchMentionDetail(id: number) {
+  const { data } = await api.get(`/api/mentions/${id}`);
+  return data;
+}

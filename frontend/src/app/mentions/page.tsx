@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { fetchMentions } from "@/lib/api";
 import { api } from "@/lib/api";
@@ -13,7 +13,7 @@ const PRIORITIES = ["", "low", "medium", "high", "critical"];
 
 interface Keyword { id: number; word: string; category: string; is_negative: boolean; }
 
-export default function MentionsPage() {
+function MentionsContent() {
   const searchParams = useSearchParams();
   const [mentions,  setMentions]  = useState<MentionData[]>([]);
   const [keywords,  setKeywords]  = useState<Keyword[]>([]);
@@ -116,5 +116,13 @@ export default function MentionsPage() {
       {/* Detail panel */}
       <MentionDetail mentionId={detailId} onClose={() => setDetailId(null)} />
     </>
+  );
+}
+
+export default function MentionsPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-20 text-gray-500 font-semibold">Loading...</div>}>
+      <MentionsContent />
+    </Suspense>
   );
 }

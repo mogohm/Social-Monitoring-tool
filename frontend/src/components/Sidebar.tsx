@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, MessageSquare, BarChart2, TrendingUp,
   Users, AlertTriangle, ShieldCheck, FileText, Settings,
-  Bell, Database, Search, Tag,
+  Bell, Database, Search, Tag, Plug,
 } from "lucide-react";
 
 const nav = [
@@ -19,6 +19,7 @@ const nav = [
   { href: "/keywords", label: "Keywords", icon: Tag },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/data-sources", label: "Data Sources", icon: Database },
+  { href: "/integrations", label: "Integration Guide", icon: Plug },
   { href: "/query-builder", label: "Query Builder", icon: Search },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

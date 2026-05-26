@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: socialeye-api
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "uvicorn backend.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        value: supersecretkey1234567890abcdef
+      - key: PYTHONIOENCODING
+        value: utf-8

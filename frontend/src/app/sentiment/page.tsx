@@ -4,9 +4,11 @@ import { fetchTrend, fetchStats } from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 export default function SentimentPage() {
-  const [trend, setTrend] = useState<{ date: string; positive: number; neutral: number; negative: number }[]>([]);
-  const [stats, setStats] = useState<Record<string, unknown> | null>(null);
+  const [trend,   setTrend]   = useState<{ date: string; positive: number; neutral: number; negative: number }[]>([]);
+  const [stats,   setStats]   = useState<Record<string, unknown> | null>(null);
+  const [mounted, setMounted] = useState(false);
 
+  useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
     fetchTrend(14).then(setTrend).catch(() => {});
     fetchStats(14).then(setStats).catch(() => {});
@@ -34,18 +36,22 @@ export default function SentimentPage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
         <h2 className="text-base font-bold text-gray-900 mb-5">Sentiment Over Time (14 days)</h2>
-        <ResponsiveContainer width="100%" height={340}>
-          <BarChart data={trend} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#374151", fontWeight: 600 }} />
-            <YAxis tick={{ fontSize: 12, fill: "#374151", fontWeight: 600 }} />
-            <Tooltip contentStyle={{ fontSize: 13, fontWeight: 600 }} />
-            <Legend wrapperStyle={{ fontSize: 13, fontWeight: 600 }} />
-            <Bar dataKey="positive" name="Positive" fill="#16a34a" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="neutral"  name="Neutral"  fill="#94a3b8" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="negative" name="Negative" fill="#dc2626" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        {mounted ? (
+          <ResponsiveContainer width="100%" height={340}>
+            <BarChart data={trend} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#374151", fontWeight: 600 }} />
+              <YAxis tick={{ fontSize: 12, fill: "#374151", fontWeight: 600 }} />
+              <Tooltip contentStyle={{ fontSize: 13, fontWeight: 600 }} />
+              <Legend wrapperStyle={{ fontSize: 13, fontWeight: 600 }} />
+              <Bar dataKey="positive" name="Positive" fill="#16a34a" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="neutral"  name="Neutral"  fill="#94a3b8" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="negative" name="Negative" fill="#dc2626" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-[340px] bg-gray-50 rounded animate-pulse" />
+        )}
       </div>
     </div>
   );

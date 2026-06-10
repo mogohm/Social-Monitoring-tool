@@ -67,3 +67,13 @@ export async function fetchMentionDetail(id: number) {
   const { data } = await api.get(`/api/mentions/${id}`);
   return data;
 }
+
+export async function fetchTopics(days = 30) {
+  const { data } = await api.get(`/api/mentions/topics?days=${days}`);
+  return data;
+}
+
+export async function fetchCompetitors(days = 30) {
+  const { data } = await api.get(`/api/mentions/competitors?days=${days}`);
+  return data;
+}

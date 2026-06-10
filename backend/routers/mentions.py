@@ -140,6 +140,77 @@ async def get_trend(
     return list(result.values())
 
 
+@router.get("/topics")
+async def get_topics(
+    days: int = Query(30, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+):
+    since = datetime.utcnow() - timedelta(days=days)
+    mentions = (await db.execute(
+        select(Mention).where(Mention.created_at >= since, Mention.is_spam == False)
+    )).scalars().all()
+
+    topics: dict[str, dict] = {}
+    for m in mentions:
+        key = (m.topic or "General").strip()
+        if key not in topics:
+            topics[key] = {"topic": key, "count": 0, "positive": 0, "neutral": 0, "negative": 0, "engagement": 0}
+        topics[key]["count"] += 1
+        sent = m.sentiment or "neutral"
+        topics[key][sent] = topics[key][sent] + 1
+        topics[key]["engagement"] += m.engagement or 0
+
+    result = sorted(topics.values(), key=lambda x: x["count"], reverse=True)[:15]
+    total = len(mentions) or 1
+    for t in result:
+        c = t["count"] or 1
+        t["positive_pct"] = round(t["positive"] / c * 100)
+        t["negative_pct"] = round(t["negative"] / c * 100)
+        t["neutral_pct"] = round(t["neutral"] / c * 100)
+        t["dominant_sentiment"] = (
+            "positive" if t["positive"] >= t["negative"] and t["positive"] >= t["neutral"]
+            else ("negative" if t["negative"] > t["positive"] else "neutral")
+        )
+        t["share_pct"] = round(t["count"] / total * 100, 1)
+    return result
+
+
+@router.get("/competitors")
+async def get_competitors(
+    days: int = Query(30, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+):
+    since = datetime.utcnow() - timedelta(days=days)
+    keywords = (await db.execute(select(Keyword).where(Keyword.is_active == True))).scalars().all()
+    kw_set = {kw.word for kw in keywords}
+
+    mentions = (await db.execute(
+        select(Mention).where(Mention.created_at >= since, Mention.is_spam == False)
+    )).scalars().all()
+
+    stats: dict[str, dict] = {
+        w: {"keyword": w, "count": 0, "positive": 0, "neutral": 0, "negative": 0, "engagement": 0}
+        for w in kw_set
+    }
+    for m in mentions:
+        for tag in (m.tags or []):
+            w = tag.get("word", "")
+            if w in stats:
+                stats[w]["count"] += 1
+                sent = m.sentiment or "neutral"
+                stats[w][sent] = stats[w][sent] + 1
+                stats[w]["engagement"] += m.engagement or 0
+
+    result = sorted([v for v in stats.values() if v["count"] > 0], key=lambda x: x["count"], reverse=True)[:15]
+    total_count = sum(r["count"] for r in result) or 1
+    for r in result:
+        c = r["count"] or 1
+        r["sov_pct"] = round(r["count"] / total_count * 100, 1)
+        r["positive_pct"] = round(r["positive"] / c * 100)
+        r["negative_pct"] = round(r["negative"] / c * 100)
+    return result
+
+
 @router.get("/{mention_id}")
 async def get_mention(mention_id: int, db: AsyncSession = Depends(get_db)):
     m = await db.get(Mention, mention_id)

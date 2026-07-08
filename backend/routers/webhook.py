@@ -15,6 +15,11 @@ class MentionPayload(BaseModel):
     author: str
     content: str
     url: Optional[str] = None
+    image_url: Optional[str] = None
+    image_urls: Optional[list] = None   # รูปทั้งหมดในโพสต์
+    author_id: Optional[str] = None
+    external_id: Optional[str] = None
+    published_at: Optional[str] = None  # ISO string หรือ unix timestamp str
     likes: int = 0
     comments: int = 0
     shares: int = 0
@@ -37,11 +42,37 @@ async def generic_webhook(payload: MentionPayload):
     async with AsyncSessionLocal() as db:
         analysis = await analyze_text(payload.content)
         tags = await _match_keywords(payload.content, db)
+        # parse published_at
+        pub_at = datetime.utcnow()
+        if payload.published_at:
+            try:
+                ts = payload.published_at.strip()
+                if ts.isdigit():
+                    pub_at = datetime.utcfromtimestamp(int(ts))
+                else:
+                    from dateutil import parser as dp
+                    pub_at = dp.parse(ts)
+            except Exception:
+                pass
+
+        # รูปหลัก — ใช้รูปแรกใน image_urls ถ้ามี
+        img_url = payload.image_url
+        if not img_url and payload.image_urls:
+            img_url = payload.image_urls[0] if payload.image_urls else None
+
+        # เก็บรูปทั้งหมดไว้ใน tags extra
+        extra_tags = tags if tags else []
+        if payload.image_urls and len(payload.image_urls) > 1:
+            extra_tags = extra_tags + [{"image_urls": payload.image_urls}]
+
         mention = Mention(
             channel=payload.channel,
             author=payload.author,
+            author_id=payload.author_id,
+            external_id=payload.external_id,
             content=payload.content,
             url=payload.url,
+            image_url=img_url,
             likes=payload.likes,
             comments=payload.comments,
             shares=payload.shares,
@@ -55,8 +86,8 @@ async def generic_webhook(payload: MentionPayload):
             priority=analysis.get("priority"),
             ai_summary=analysis.get("summary"),
             suggested_action=analysis.get("suggested_action"),
-            tags=tags if tags else None,
-            published_at=datetime.utcnow(),
+            tags=extra_tags if extra_tags else None,
+            published_at=pub_at,
         )
         db.add(mention)
         await db.commit()

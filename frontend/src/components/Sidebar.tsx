@@ -4,12 +4,13 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, MessageSquare, BarChart2, TrendingUp,
   Users, AlertTriangle, ShieldCheck, FileText, Settings,
-  Bell, Database, Search, Tag, Plug,
+  Bell, Database, Search, Tag, Plug, PlusCircle,
 } from "lucide-react";
 
 const nav = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/mentions", label: "Live Mentions", icon: MessageSquare },
+  { href: "/quick-add", label: "Quick Add", icon: PlusCircle },
   { href: "/sentiment", label: "Sentiment", icon: BarChart2 },
   { href: "/topics", label: "Topics & Trends", icon: TrendingUp },
   { href: "/competitors", label: "Competitors", icon: Users },

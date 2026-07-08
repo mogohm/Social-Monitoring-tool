@@ -77,3 +77,8 @@ export async function fetchCompetitors(days = 30) {
   const { data } = await api.get(`/api/mentions/competitors?days=${days}`);
   return data;
 }
+
+export async function fetchUsers(days = 30) {
+  const { data } = await api.get(`/api/mentions/users?days=${days}`);
+  return data;
+}

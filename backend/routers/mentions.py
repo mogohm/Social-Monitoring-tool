@@ -140,6 +140,62 @@ async def get_trend(
     return list(result.values())
 
 
+@router.get("/users")
+async def get_user_analytics(
+    days: int = Query(30, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+):
+    since = datetime.utcnow() - timedelta(days=days)
+    mentions = (await db.execute(
+        select(Mention).where(Mention.created_at >= since, Mention.is_spam == False)
+    )).scalars().all()
+
+    users: dict[str, dict] = {}
+    for m in mentions:
+        author = (m.author or "Unknown").strip()
+        if not author or author == "Manual Entry":
+            continue
+        if author not in users:
+            users[author] = {
+                "author": author,
+                "count": 0, "positive": 0, "neutral": 0, "negative": 0,
+                "engagement": 0, "channels": set(), "risk_scores": [],
+                "last_seen": m.created_at,
+            }
+        u = users[author]
+        u["count"] += 1
+        u[m.sentiment or "neutral"] += 1
+        u["engagement"] += m.engagement or 0
+        u["channels"].add(m.channel or "unknown")
+        if m.risk_score:
+            u["risk_scores"].append(float(m.risk_score))
+        if m.created_at and m.created_at > u["last_seen"]:
+            u["last_seen"] = m.created_at
+
+    result = []
+    for u in users.values():
+        c = u["count"] or 1
+        risks = u["risk_scores"]
+        avg_risk = round(sum(risks) / len(risks), 1) if risks else 0
+        pos, neg, neu = u["positive"], u["negative"], u["neutral"]
+        dominant = "positive" if pos >= neg and pos >= neu else ("negative" if neg > pos else "neutral")
+        result.append({
+            "author": u["author"],
+            "count": u["count"],
+            "positive": pos, "neutral": neu, "negative": neg,
+            "positive_pct": round(pos / c * 100),
+            "negative_pct": round(neg / c * 100),
+            "engagement": u["engagement"],
+            "channels": sorted(u["channels"]),
+            "avg_risk": avg_risk,
+            "dominant_sentiment": dominant,
+            "last_seen": u["last_seen"].isoformat() if u["last_seen"] else None,
+        })
+
+    result.sort(key=lambda x: x["count"], reverse=True)
+    return result[:50]
+
+
 @router.get("/topics")
 async def get_topics(
     days: int = Query(30, ge=1, le=90),

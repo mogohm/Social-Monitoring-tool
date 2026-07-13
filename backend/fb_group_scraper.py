@@ -152,7 +152,6 @@ async def do_login(page) -> bool:
 # ---------------------------------------------------------------------------
 JS_EXTRACT = """
 (article) => {
-    // ดึงข้อมูลทั้งหมดจาก article ด้วย JS
     const result = {
         author: '', author_url: '', author_id: '',
         content: '', post_url: '', external_id: '',
@@ -162,117 +161,101 @@ JS_EXTRACT = """
     };
 
     // === AUTHOR ===
-    // หา link ที่ชี้ไปโปรไฟล์ user — อยู่ต้นๆ ของ article
-    const allLinks = Array.from(article.querySelectorAll('a[href]'));
-    for (const a of allLinks) {
-        const href = a.getAttribute('href') || '';
+    // Facebook Groups: ชื่อผู้โพสต์อยู่ใน a[href*="/user/"] ที่มี text ไม่ว่าง
+    const userLinks = Array.from(article.querySelectorAll('a[href*="/user/"]'));
+    for (const a of userLinks) {
         const text = (a.innerText || '').trim();
-        // profile links: /user/xxx, /profile.php?id=, /username (ไม่ใช่ /groups/ /pages/)
-        if (text.length > 1 && text.length < 80 &&
-            !href.includes('/groups/') && !href.includes('/pages/') &&
-            !href.includes('/events/') && !href.includes('/marketplace/') &&
-            (href.startsWith('/') || href.includes('facebook.com/')) &&
-            !href.includes('#') && !href.includes('?__') &&
-            !/^\\d+$/.test(text)) {
+        if (text.length > 1 && text.length < 100) {
             result.author = text;
-            result.author_url = href.startsWith('/') ? 'https://facebook.com' + href : href;
-            // ดึง user ID
-            const idMatch = href.match(/id=([0-9]+)|[/]user[/]([0-9]+)/);
-            if (idMatch) result.author_id = idMatch[1] || idMatch[2];
-            else result.author_id = href.split('/').filter(Boolean).pop()?.split('?')[0] || '';
+            const href = a.getAttribute('href') || '';
+            result.author_url = href.startsWith('/') ? 'https://www.facebook.com' + href.split('?')[0] : href.split('?')[0];
+            const idM = href.match(/[/]user[/]([^/?]+)/);
+            if (idM) result.author_id = idM[1];
             break;
+        }
+    }
+    // fallback: profile.php?id=
+    if (!result.author) {
+        const profLinks = Array.from(article.querySelectorAll('a[href*="profile.php"]'));
+        for (const a of profLinks) {
+            const text = (a.innerText || '').trim();
+            if (text.length > 1 && text.length < 100) {
+                result.author = text;
+                result.author_url = a.getAttribute('href') || '';
+                const idM = (a.getAttribute('href')||'').match(/id=([0-9]+)/);
+                if (idM) result.author_id = idM[1];
+                break;
+            }
         }
     }
 
     // === POST URL + EXTERNAL ID ===
-    for (const a of allLinks) {
-        const href = a.getAttribute('href') || '';
-        if (href.includes('/posts/') || href.includes('/permalink/') || href.includes('story_fbid=')) {
-            result.post_url = href.startsWith('/') ? 'https://facebook.com' + href : href;
-            const m = href.match(/\\/posts\\/(\\d+)|story_fbid=(\\d+)|\\/permalink\\/(\\d+)/);
-            if (m) result.external_id = m[1] || m[2] || m[3];
-            break;
-        }
+    const postLink = article.querySelector('a[href*="/posts/"], a[href*="/permalink/"]');
+    if (postLink) {
+        const href = postLink.getAttribute('href') || '';
+        result.post_url = href.startsWith('/') ? 'https://www.facebook.com' + href : href;
+        const m = href.match(/[/]posts[/]([0-9]+)|[/]permalink[/]([0-9]+)/);
+        if (m) result.external_id = m[1] || m[2];
     }
 
     // === TIMESTAMP ===
-    const abbr = article.querySelector('abbr[data-utime]');
-    if (abbr) {
-        result.timestamp = abbr.getAttribute('data-utime') || '';
-    } else {
-        const tspan = article.querySelector('a[href*="/posts/"] span[title], span[title*="202"]');
-        if (tspan) result.timestamp = tspan.getAttribute('title') || '';
-    }
+    const timeLink = article.querySelector('a[href*="/posts/"] span, a[href*="/permalink/"] span');
+    if (timeLink) result.timestamp = (timeLink.getAttribute('title') || timeLink.innerText || '').trim();
 
     // === CONTENT ===
-    // ลอง selector เฉพาะก่อน
-    const msgEl = article.querySelector('[data-ad-preview="message"], div[data-testid="post_message"]');
-    if (msgEl) {
-        result.content = (msgEl.innerText || '').trim();
-    }
-    // ถ้าไม่เจอ — หา div[dir="auto"] ที่ยาวที่สุด
-    if (!result.content || result.content.length < 15) {
-        const dirs = Array.from(article.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
-        const texts = dirs.map(el => (el.innerText || '').trim()).filter(t => t.length > 20);
-        if (texts.length) result.content = texts.reduce((a, b) => a.length >= b.length ? a : b, '');
-    }
-    // fallback — innerText ทั้งหมดแต่กรอง UI
-    if (!result.content || result.content.length < 15) {
-        const skip = new Set(['Like','Comment','Share','Send','See more','See less','ถูกใจ','แสดงความคิดเห็น','แชร์','ดูเพิ่มเติม','Write a comment...','เขียนความคิดเห็น...']);
-        const lines = (article.innerText || '').split('\\n')
-            .map(l => l.trim())
-            .filter(l => l.length > 20 && !skip.has(l) && !/^[\\d,]+[KkMm]?$/.test(l));
-        result.content = lines.slice(0, 12).join('\\n');
-    }
-    result.content = result.content.slice(0, 6000);
+    // dir[auto] ทั้งหมด — อันแรกมักเป็นชื่อ ที่เหลือเป็น content
+    const dirEls = Array.from(article.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
+    const dirTexts = [...new Set(dirEls.map(el => (el.innerText||'').trim()).filter(t => t.length > 0))];
+    // กรองชื่อออก + กรอง badge เช่น "Rising contributor" "All-star contributor"
+    const badges = new Set(['Rising contributor','All-star contributor','Top contributor','New member','Group Expert']);
+    const contentLines = dirTexts.filter(t =>
+        t !== result.author &&
+        !badges.has(t) &&
+        t.length > 5 &&
+        !/^[0-9]+[hmdwy]$/.test(t)
+    );
+    // dedup nested (เอา unique)
+    result.content = [...new Set(contentLines)].slice(0, 8).join('\\n').slice(0, 6000);
 
     // === IMAGES ===
+    // รอ lazy load: ดู img.src ที่มี scontent หรือ fbcdn
     const imgs = Array.from(article.querySelectorAll('img'));
     for (const img of imgs) {
-        const src = img.getAttribute('src') || img.getAttribute('data-src') || '';
-        if (!src) continue;
+        const src = img.src || img.getAttribute('data-src') || '';
+        if (!src || src.startsWith('data:')) continue;
         if (!src.includes('scontent') && !src.includes('fbcdn.net')) continue;
-        if (src.includes('emoji') || src.includes('sticker')) continue;
-        // กรองรูปโปรไฟล์ขนาดเล็ก
-        const w = parseInt(img.getAttribute('width') || img.naturalWidth || '999');
-        const h = parseInt(img.getAttribute('height') || img.naturalHeight || '999');
-        if (w <= 60 && h <= 60) continue;
+        if (src.includes('emoji') || src.includes('rsrc.php')) continue;
+        const w = img.naturalWidth || parseInt(img.getAttribute('width')||'999');
+        const h = img.naturalHeight || parseInt(img.getAttribute('height')||'999');
+        if (w > 0 && w <= 60 && h <= 60) continue;
         if (!result.images.includes(src)) result.images.push(src);
     }
+    // background-image
+    const bgEls = Array.from(article.querySelectorAll('[style*="background-image"]'));
+    for (const el of bgEls) {
+        const style = el.getAttribute('style') || '';
+        const m = style.match(/url\\("(https:[^"]+scontent[^"]+)"\\)/);
+        if (m && !result.images.includes(m[1])) result.images.push(m[1]);
+    }
 
-    // post type
     if (article.querySelector('video')) result.post_type = 'video';
     else if (result.images.length > 0) result.post_type = 'photo';
 
     // === ENGAGEMENT ===
-    // Likes: หา span/div ที่มี aria-label reaction หรือตัวเลขใกล้ reaction bar
-    const reactionEl = article.querySelector(
-        '[aria-label*="reaction" i], [aria-label*="ปฏิกิริยา" i], ' +
-        'span[data-testid*="like-reaction-count"]'
-    );
-    if (reactionEl) {
-        const t = (reactionEl.innerText || '').trim().replace(/,/g, '');
-        const m = t.match(/([\\d.]+)([KkMm]?)/);
-        if (m) {
-            let n = parseFloat(m[1]);
-            if (m[2].toLowerCase() === 'k') n *= 1000;
-            if (m[2].toLowerCase() === 'm') n *= 1000000;
-            result.likes = Math.round(n);
-        }
-    }
-    // Comments
-    const cmtEl = article.querySelector(
-        '[aria-label*="comment" i], [aria-label*="ความคิดเห็น" i]'
-    );
-    if (cmtEl) {
-        const t = (cmtEl.innerText || '').trim().replace(/,/g, '');
-        const m = t.match(/([\\d.]+)([KkMm]?)/);
-        if (m) {
-            let n = parseFloat(m[1]);
-            if (m[2].toLowerCase() === 'k') n *= 1000;
-            result.comments = Math.round(n);
-        }
-    }
+    const parseNum = (t) => {
+        t = (t||'').replace(/,/g,'').trim().toLowerCase();
+        const m = t.match(/([0-9.]+)([km]?)/);
+        if (!m) return 0;
+        let n = parseFloat(m[1]);
+        if (m[2]==='k') n*=1000; if (m[2]==='m') n*=1000000;
+        return Math.round(n);
+    };
+    const rxnEl = article.querySelector('[aria-label*="reaction" i],[aria-label*="ปฏิกิริยา" i]');
+    if (rxnEl) result.likes = parseNum(rxnEl.innerText);
+    const cmtEl = article.querySelector('[aria-label*="comment" i],[aria-label*="ความคิดเห็น" i]');
+    if (cmtEl) result.comments = parseNum(cmtEl.innerText);
+    const shrEl = article.querySelector('[aria-label*="share" i],[aria-label*="การแชร์" i]');
+    if (shrEl) result.shares = parseNum(shrEl.innerText);
 
     return result;
 }
@@ -281,7 +264,8 @@ JS_EXTRACT = """
 
 async def extract_posts(page, seen: set) -> list[dict]:
     found = []
-    await asyncio.sleep(1)
+    # รอให้รูป lazy load
+    await asyncio.sleep(2)
 
     try:
         articles = await page.query_selector_all('div[role="article"]')

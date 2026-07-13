@@ -6,6 +6,7 @@ export interface MentionData {
   author: string;
   content: string;
   url: string | null;
+  image_url: string | null;
   sentiment: string;
   emotion: string | null;
   intent: string | null;
@@ -129,6 +130,17 @@ export default function MentionCard({ mention, onViewDetail }: Props) {
             </a>
           )}
         </div>
+        {/* Post image */}
+        {mention.image_url && (
+          <div className="mb-2 rounded-lg overflow-hidden border border-gray-200 max-h-52">
+            <img
+              src={mention.image_url}
+              alt="post image"
+              className="w-full object-cover max-h-52"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
+        )}
         <p className="text-sm font-medium text-gray-800 leading-relaxed line-clamp-3">
           {highlightKeywords(mention.content, tags)}
         </p>

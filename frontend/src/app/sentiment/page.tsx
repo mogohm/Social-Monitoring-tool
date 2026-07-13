@@ -24,7 +24,7 @@ export default function SentimentPage() {
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: "Positive", value: stats ? `${stats.positive_pct}%` : "—", color: "text-green-700", bg: "bg-green-50 border-green-200" },
-          { label: "Neutral",  value: stats ? `${stats.neutral}` : "—",        color: "text-gray-700",  bg: "bg-gray-50 border-gray-200" },
+          { label: "Neutral",  value: stats ? `${stats.neutral_pct}%` : "—",    color: "text-gray-700",  bg: "bg-gray-50 border-gray-200" },
           { label: "Negative", value: stats ? `${stats.negative_pct}%` : "—", color: "text-red-700",   bg: "bg-red-50 border-red-200" },
         ].map((s) => (
           <div key={s.label} className={`rounded-xl border-2 p-5 text-center ${s.bg}`}>

@@ -109,6 +109,7 @@ async def get_stats(
         "positive": positive, "negative": negative, "neutral": neutral,
         "positive_pct": round(positive / total * 100, 1) if total else 0,
         "negative_pct": round(negative / total * 100, 1) if total else 0,
+        "neutral_pct":  round(neutral  / total * 100, 1) if total else 0,
         "net_sentiment": round((positive - negative) / total * 100, 1) if total else 0,
         "avg_risk_score": round(float(avg_risk), 1),
         "total_engagement": int(total_engagement),

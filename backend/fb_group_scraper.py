@@ -268,21 +268,35 @@ JS_EXTRACT = r"""
         !badges.has(t) &&
         t.length > 5 &&
         !/^[0-9]+\s*(h|m|d|w|y|hr|min|วัน|ชม|นาที|สัปดาห์)/.test(t) &&
-        !/^[0-9]+[hmdwy]$/.test(t)
+        !/^[0-9]+[hmdwy]$/.test(t) &&
+        // Filter garbled Facebook metadata (long random alphanumeric, no spaces)
+        !/^[A-Za-z0-9]{30,}$/.test(t) &&
+        // Filter FB short-link spam (e.g. UZZdZq.com, BcUr828en.com)
+        !/^[A-Za-z0-9]{4,10}\.(com|net|org|io)$/.test(t) &&
+        // Filter FB obfuscated metadata string (contains 'spnrS' pattern)
+        !t.includes('spnrS') &&
+        !t.includes('Soeodta')
     );
     result.content = [...new Set(contentLines)].slice(0, 12).join('\n').slice(0, 6000);
 
     // === IMAGES ===
+    // NOTE: img.src (property) returns page URL when src="" — must use getAttribute
     const imgs = Array.from(article.querySelectorAll('img'));
     for (const img of imgs) {
-        const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+        const attrSrc = img.getAttribute('src') || '';
+        // Use currentSrc (actual loading URL) first, then explicit attribute, then data-src
+        const src = img.currentSrc
+            || (attrSrc.startsWith('http') ? attrSrc : '')
+            || img.getAttribute('data-src')
+            || img.getAttribute('data-lazy-src')
+            || '';
         if (!src || src.startsWith('data:')) continue;
-        if (!src.includes('scontent') && !src.includes('fbcdn.net')) continue;
+        if (!src.includes('scontent') && !src.includes('fbcdn')) continue;
         if (src.includes('emoji') || src.includes('rsrc.php') || src.includes('safe_image')) continue;
-        // กรองรูปเล็ก (avatar, icon)
-        const w = img.naturalWidth || parseInt(img.getAttribute('width') || '0') || 999;
-        const h = img.naturalHeight || parseInt(img.getAttribute('height') || '0') || 999;
-        if (w > 0 && w <= 80 && h > 0 && h <= 80) continue;
+        // Skip profile pics / UI icons by attribute dimensions only (naturalWidth unreliable before load)
+        const attrW = parseInt(img.getAttribute('width') || '0');
+        const attrH = parseInt(img.getAttribute('height') || '0');
+        if (attrW > 0 && attrW <= 80 && attrH > 0 && attrH <= 80) continue;
         if (!result.images.includes(src)) result.images.push(src);
     }
     // background-image fallback
@@ -325,7 +339,7 @@ async def _process_element(el, is_comment: bool, seen: set) -> dict | None:
     """สกัดข้อมูลจาก element เดียว (post card หรือ comment article)"""
     try:
         await el.scroll_into_view_if_needed()
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(1.5)  # Allow time for lazy-loaded images to get src set
     except Exception:
         pass
 

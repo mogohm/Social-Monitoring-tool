@@ -154,24 +154,8 @@ JS_EXTRACT = r"""
         images: []
     };
 
-    // === ตรวจว่าเป็น top-level post หรือ nested comment ===
-    // Posts: มีปุ่ม Share / แชร์
-    // Comments: ไม่มี Share, มีแค่ Reply / ตอบกลับ
-    // ตรวจ ancestor article ด้วย
-    let parentEl = article.parentElement;
-    let isNested = false;
-    while (parentEl && parentEl !== document.body) {
-        if (parentEl.getAttribute && parentEl.getAttribute('role') === 'article') {
-            isNested = true; break;
-        }
-        parentEl = parentEl.parentElement;
-    }
-
-    const allBtns = Array.from(article.querySelectorAll('[role="button"], a[role="button"]'));
-    const btnTexts = allBtns.map(b => (b.innerText || '').trim().toLowerCase());
-    const hasShare = btnTexts.some(t => t === 'share' || t === 'แชร์');
-
-    result.is_comment = isNested || !hasShare;
+    // is_comment จะถูก override จาก Python ตาม element type ที่ส่งมา
+    // ไม่ต้องตรวจ Share button ใน JS แล้ว
 
     // === AUTHOR ===
     // ลองจาก a[href*="/user/"] ก่อน
@@ -211,19 +195,44 @@ JS_EXTRACT = r"""
     }
 
     // === POST URL + EXTERNAL ID ===
-    // หา link ที่ชี้ไป /posts/ หรือ /permalink/ (ไม่ใช่ ?comment_id=)
-    const postLinks = Array.from(article.querySelectorAll(
-        'a[href*="/posts/"], a[href*="/permalink/"]'
-    ));
-    for (const lnk of postLinks) {
-        const href = lnk.getAttribute('href') || '';
-        if (href.includes('comment_id')) continue;
-        result.post_url = href.startsWith('/') ? 'https://www.facebook.com' + href : href;
-        const m = href.match(/\/posts\/([0-9]+)|\/permalink\/([0-9]+)/);
-        if (m) result.external_id = m[1] || m[2];
-        break;
+    // Facebook Group CHRONOLOGICAL view ใช้ /post_insights/POST_ID/ สำหรับ post card
+    const groupM = window.location.href.match(/\/groups\/([0-9]+)/);
+    const GROUP_ID = groupM ? groupM[1] : '';
+
+    // 1. post_insights link (admin view — มีใน CHRONOLOGICAL feed)
+    const insightsLnk = article.querySelector('a[href*="/post_insights/"]');
+    if (insightsLnk) {
+        const h = insightsLnk.getAttribute('href') || '';
+        const m = h.match(/\/post_insights\/([0-9]+)/);
+        if (m) {
+            result.external_id = m[1];
+            result.post_url = 'https://www.facebook.com/groups/' + GROUP_ID + '/posts/' + m[1] + '/';
+        }
     }
-    // For comments: grab comment_id for dedup
+    // 2. /posts/ หรือ /permalink/ ไม่มี comment_id
+    if (!result.external_id) {
+        for (const lnk of article.querySelectorAll('a[href*="/posts/"], a[href*="/permalink/"]')) {
+            const href = lnk.getAttribute('href') || '';
+            if (href.includes('comment_id')) continue;
+            result.post_url = href.startsWith('/') ? 'https://www.facebook.com' + href : href;
+            const m = href.match(/\/posts\/([0-9]+)|\/permalink\/([0-9]+)/);
+            if (m) result.external_id = m[1] || m[2];
+            break;
+        }
+    }
+    // 3. photo link with set=gm.POST_ID
+    if (!result.external_id) {
+        const photoLnk = article.querySelector('a[href*="/photo/"]');
+        if (photoLnk) {
+            const h = photoLnk.getAttribute('href') || '';
+            const m = h.match(/set=gm\.([0-9]+)/);
+            if (m) {
+                result.external_id = m[1];
+                result.post_url = 'https://www.facebook.com/groups/' + GROUP_ID + '/posts/' + m[1] + '/';
+            }
+        }
+    }
+    // 4. comment_id link (สำหรับ comment article)
     if (!result.external_id) {
         const cmt = article.querySelector('a[href*="comment_id"]');
         if (cmt) {
@@ -250,7 +259,9 @@ JS_EXTRACT = r"""
     const badges = new Set([
         'Rising contributor','All-star contributor','Top contributor',
         'New member','Group Expert','Admin','Moderator',
-        'สมาชิกที่กำลังมาแรง','ผู้ร่วมกลุ่มระดับดาว','ผู้เชี่ยวชาญกลุ่ม'
+        'สมาชิกที่กำลังมาแรง','ผู้ร่วมกลุ่มระดับดาว','ผู้เชี่ยวชาญกลุ่ม',
+        'Facebook','Like','Comment','Share','Follow','See more','See translation',
+        'ดูเพิ่มเติม','ถูกใจ','ความคิดเห็น','แชร์','ติดตาม','ดูการแปล'
     ]);
     const contentLines = dirTexts.filter(t =>
         t !== result.author &&
@@ -310,78 +321,114 @@ JS_EXTRACT = r"""
 """
 
 
+async def _process_element(el, is_comment: bool, seen: set) -> dict | None:
+    """สกัดข้อมูลจาก element เดียว (post card หรือ comment article)"""
+    try:
+        await el.scroll_into_view_if_needed()
+        await asyncio.sleep(0.3)
+    except Exception:
+        pass
+
+    # คลิก "See more"
+    for see_sel in ['div[role="button"]', 'span[role="button"]']:
+        try:
+            btns = await el.query_selector_all(see_sel)
+            for btn in btns:
+                t = (await btn.inner_text()).strip()
+                if t in ("See more", "ดูเพิ่มเติม"):
+                    await btn.click()
+                    await asyncio.sleep(0.4)
+        except Exception:
+            pass
+
+    try:
+        data = await el.evaluate(JS_EXTRACT)
+    except Exception as e:
+        print(f"  ⚠️ JS eval: {e}")
+        return None
+
+    if not data:
+        return None
+
+    content = (data.get("content") or "").strip()
+    if not content or len(content) < 8:
+        return None
+
+    ext_id = data.get("external_id", "")
+    dedup  = ext_id if ext_id else "h_" + hashlib.md5(content[:120].encode("utf-8", errors="ignore")).hexdigest()[:14]
+
+    if dedup in seen:
+        return None
+    seen.add(dedup)
+
+    return {
+        "channel":     "facebook_comment" if is_comment else "facebook",
+        "author":      data.get("author") or "Unknown",
+        "author_id":   data.get("author_id") or "",
+        "author_url":  data.get("author_url") or "",
+        "content":     content,
+        "url":         data.get("post_url") or FB_GROUP_URL,
+        "external_id": ext_id,
+        "timestamp":   data.get("timestamp") or "",
+        "images":      data.get("images") or [],
+        "likes":       data.get("likes") or 0,
+        "comments":    data.get("comments") or 0,
+        "shares":      data.get("shares") or 0,
+        "post_type":   data.get("post_type") or "text",
+        "is_comment":  is_comment,
+    }
+
+
 async def extract_articles(page, seen: set) -> list[dict]:
     found = []
 
     try:
-        articles = await page.query_selector_all('div[role="article"]')
-        if not articles:
-            print(f"    ⚠️ ไม่พบ article elements")
-            return found
-        print(f"    พบ {len(articles)} articles")
+        # === POSTS: หา div ลูกโดยตรงของ role="feed" ที่มี post_insights หรือ photo set=gm. ===
+        # Facebook CHRONOLOGICAL view: post cards ใช้ /post_insights/POST_ID/ link
+        # (ไม่ใช้ role="article" — role="article" = comment cards เท่านั้น)
+        feed = await page.query_selector('[role="feed"]')
+        post_cards = []
+        if feed:
+            children = await feed.query_selector_all(":scope > div")
+            for child in children:
+                is_post = False
+                # ตรวจ post_insights link
+                ins_links = await child.query_selector_all('a[href*="/post_insights/"]')
+                if ins_links:
+                    is_post = True
+                # ตรวจ photo set=gm. link (photo post)
+                if not is_post:
+                    photo_links = await child.query_selector_all('a[href*="/photo/"]')
+                    for lnk in photo_links:
+                        href = (await lnk.get_attribute("href")) or ""
+                        if "set=gm." in href:
+                            is_post = True
+                            break
+                # ตรวจ /posts/ ไม่มี comment_id
+                if not is_post:
+                    post_links = await child.query_selector_all('a[href*="/posts/"], a[href*="/permalink/"]')
+                    for lnk in post_links:
+                        href = (await lnk.get_attribute("href")) or ""
+                        if "comment_id" not in href and href.strip():
+                            is_post = True
+                            break
+                if is_post:
+                    post_cards.append(child)
 
-        for art in articles:
-            # Scroll into view เพื่อให้รูป lazy-load โหลด
-            try:
-                await art.scroll_into_view_if_needed()
-                await asyncio.sleep(0.25)
-            except Exception:
-                pass
+        # === COMMENTS: div[role="article"] (ยังคงเก็บ comment) ===
+        comment_arts = await page.query_selector_all('div[role="article"]')
 
-            # คลิก "See more" / "ดูเพิ่มเติม"
-            for see_sel in ['div[role="button"]', 'span[role="button"]']:
-                try:
-                    btns = await art.query_selector_all(see_sel)
-                    for btn in btns:
-                        t = (await btn.inner_text()).strip()
-                        if t in ("See more", "ดูเพิ่มเติม"):
-                            await btn.click()
-                            await asyncio.sleep(0.4)
-                except Exception:
-                    pass
+        print(f"    พบ {len(post_cards)} post cards + {len(comment_arts)} comment articles")
 
-            try:
-                data = await art.evaluate(JS_EXTRACT)
-            except Exception as e:
-                print(f"  ⚠️ JS eval error: {e}")
-                continue
+        for pc in post_cards:
+            item = await _process_element(pc, is_comment=False, seen=seen)
+            if item:
+                found.append(item)
 
-            if not data:
-                continue
-
-            content = (data.get("content") or "").strip()
-            if not content or len(content) < 8:
-                continue
-
-            is_comment = data.get("is_comment", False)
-            ext_id     = data.get("external_id", "")
-
-            # Dedup key
-            if ext_id:
-                dedup = ext_id
-            else:
-                dedup = "h_" + hashlib.md5(content[:120].encode("utf-8", errors="ignore")).hexdigest()[:14]
-
-            if dedup in seen:
-                continue
-            seen.add(dedup)
-
-            found.append({
-                "channel":     "facebook_comment" if is_comment else "facebook",
-                "author":      data.get("author") or "Unknown",
-                "author_id":   data.get("author_id") or "",
-                "author_url":  data.get("author_url") or "",
-                "content":     content,
-                "url":         data.get("post_url") or FB_GROUP_URL,
-                "external_id": ext_id,
-                "timestamp":   data.get("timestamp") or "",
-                "images":      data.get("images") or [],
-                "likes":       data.get("likes") or 0,
-                "comments":    data.get("comments") or 0,
-                "shares":      data.get("shares") or 0,
-                "post_type":   data.get("post_type") or "text",
-                "is_comment":  is_comment,
-            })
+        for art in comment_arts:
+            item = await _process_element(art, is_comment=True, seen=seen)
+            if item:
+                found.append(item)
 
     except Exception as e:
         print(f"  ⚠️  Extract error: {e}")
@@ -481,8 +528,8 @@ async def run():
         print("❌ ยังไม่ได้ติดตั้ง playwright — รัน: python -m playwright install chromium")
         sys.exit(1)
 
-    # URL แบบ recent activity — ข้ามหน้า admin overview
-    group_url = FB_GROUP_URL.rstrip("/") + "?sorting_setting=RECENT_ACTIVITY"
+    # CHRONOLOGICAL: เรียงโพสต์ตามเวลา — ไม่ใช่ comment activity feed
+    group_url = FB_GROUP_URL.rstrip("/") + "?sorting_setting=CHRONOLOGICAL"
 
     seen = load_seen()
     print(f"📋 โพสต์ที่เคยเห็นแล้ว: {len(seen)} รายการ")
@@ -525,7 +572,7 @@ async def run():
             await ctx.storage_state(path=str(SESSION_FILE))
             print("💾 บันทึก session แล้ว")
 
-        print(f"\n📁 กำลังเปิดกลุ่ม (recent activity feed)...")
+        print(f"\n📁 กำลังเปิดกลุ่ม (chronological posts feed)...")
         await page.goto(group_url, wait_until="domcontentloaded")
         await asyncio.sleep(6)
 

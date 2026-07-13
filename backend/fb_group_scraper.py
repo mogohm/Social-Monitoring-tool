@@ -177,7 +177,7 @@ JS_EXTRACT = """
             result.author = text;
             result.author_url = href.startsWith('/') ? 'https://facebook.com' + href : href;
             // ดึง user ID
-            const idMatch = href.match(/id=(\d+)|\/user\/(\d+)/);
+            const idMatch = href.match(/id=([0-9]+)|[/]user[/]([0-9]+)/);
             if (idMatch) result.author_id = idMatch[1] || idMatch[2];
             else result.author_id = href.split('/').filter(Boolean).pop()?.split('?')[0] || '';
             break;

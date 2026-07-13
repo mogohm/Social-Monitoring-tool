@@ -27,3 +27,7 @@ dist/
 Thumbs.db
 
 .vercel
+
+# Facebook scraper state (credentials / session tokens)
+backend/.fb_session.json
+backend/.fb_seen.json

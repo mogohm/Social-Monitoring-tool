@@ -41,8 +41,9 @@ const priorityStyle: Record<string, string> = {
 };
 
 const channelStyle: Record<string, string> = {
-  facebook:  "bg-blue-700 text-white",
-  twitter:   "bg-sky-500 text-white",
+  facebook:          "bg-blue-700 text-white",
+  facebook_comment:  "bg-blue-500 text-white",
+  twitter:           "bg-sky-500 text-white",
   tiktok:    "bg-gray-900 text-white",
   youtube:   "bg-red-600 text-white",
   instagram: "bg-purple-600 text-white",

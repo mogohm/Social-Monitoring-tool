@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 Facebook Closed Group Scraper — SocialEye Monitor
-วนเก็บข้อมูลทุก 1 ชั่วโมง — เก็บครบ: ข้อความ, รูป, engagement, ชื่อผู้โพสต์
+เก็บทั้งโพสต์และ comment — รูป, ข้อความ, engagement, ชื่อผู้โพสต์
 """
 
 import asyncio
 import aiohttp
+import hashlib
 import os
 import sys
 import json
@@ -36,17 +37,8 @@ def load_seen() -> set:
 
 
 def save_seen(seen: set):
-    lst = list(seen)[-3000:]
+    lst = list(seen)[-5000:]
     SEEN_FILE.write_text(json.dumps(lst), encoding="utf-8")
-
-
-def extract_post_id(url: str) -> str:
-    for p in [r"/posts/(\d+)", r"/permalink/(\d+)", r"story_fbid=(\d+)",
-               r"[?&]id=(\d+)", r"/(\d{10,})"]:
-        m = re.search(p, url)
-        if m:
-            return m.group(1)
-    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -150,26 +142,47 @@ async def do_login(page) -> bool:
 
 
 # ---------------------------------------------------------------------------
-JS_EXTRACT = """
+# JS_EXTRACT: สกัดข้อมูลจาก article element เดียว
+# ส่งคืน null ถ้า article นี้เป็น nested comment ที่ไม่ต้องการ
+JS_EXTRACT = r"""
 (article) => {
     const result = {
         author: '', author_url: '', author_id: '',
         content: '', post_url: '', external_id: '',
-        timestamp: '', post_type: 'text',
+        timestamp: '', post_type: 'text', is_comment: false,
         likes: 0, comments: 0, shares: 0,
         images: []
     };
 
+    // === ตรวจว่าเป็น top-level post หรือ nested comment ===
+    // Posts: มีปุ่ม Share / แชร์
+    // Comments: ไม่มี Share, มีแค่ Reply / ตอบกลับ
+    // ตรวจ ancestor article ด้วย
+    let parentEl = article.parentElement;
+    let isNested = false;
+    while (parentEl && parentEl !== document.body) {
+        if (parentEl.getAttribute && parentEl.getAttribute('role') === 'article') {
+            isNested = true; break;
+        }
+        parentEl = parentEl.parentElement;
+    }
+
+    const allBtns = Array.from(article.querySelectorAll('[role="button"], a[role="button"]'));
+    const btnTexts = allBtns.map(b => (b.innerText || '').trim().toLowerCase());
+    const hasShare = btnTexts.some(t => t === 'share' || t === 'แชร์');
+
+    result.is_comment = isNested || !hasShare;
+
     // === AUTHOR ===
-    // Facebook Groups: ชื่อผู้โพสต์อยู่ใน a[href*="/user/"] ที่มี text ไม่ว่าง
+    // ลองจาก a[href*="/user/"] ก่อน
     const userLinks = Array.from(article.querySelectorAll('a[href*="/user/"]'));
     for (const a of userLinks) {
-        const text = (a.innerText || '').trim();
+        const text = (a.innerText || a.getAttribute('aria-label') || '').trim();
         if (text.length > 1 && text.length < 100) {
             result.author = text;
             const href = a.getAttribute('href') || '';
             result.author_url = href.startsWith('/') ? 'https://www.facebook.com' + href.split('?')[0] : href.split('?')[0];
-            const idM = href.match(/[/]user[/]([^/?]+)/);
+            const idM = href.match(/\/user\/([^/?#]+)/);
             if (idM) result.author_id = idM[1];
             break;
         }
@@ -178,63 +191,94 @@ JS_EXTRACT = """
     if (!result.author) {
         const profLinks = Array.from(article.querySelectorAll('a[href*="profile.php"]'));
         for (const a of profLinks) {
-            const text = (a.innerText || '').trim();
+            const text = (a.innerText || a.getAttribute('aria-label') || '').trim();
             if (text.length > 1 && text.length < 100) {
                 result.author = text;
                 result.author_url = a.getAttribute('href') || '';
-                const idM = (a.getAttribute('href')||'').match(/id=([0-9]+)/);
+                const idM = (a.getAttribute('href') || '').match(/id=([0-9]+)/);
                 if (idM) result.author_id = idM[1];
                 break;
             }
         }
     }
+    // fallback: strong a ใน header area
+    if (!result.author) {
+        const strongA = article.querySelector('h2 a, h3 a, strong a');
+        if (strongA) {
+            result.author = (strongA.innerText || '').trim();
+            result.author_url = strongA.getAttribute('href') || '';
+        }
+    }
 
     // === POST URL + EXTERNAL ID ===
-    const postLink = article.querySelector('a[href*="/posts/"], a[href*="/permalink/"]');
-    if (postLink) {
-        const href = postLink.getAttribute('href') || '';
+    // หา link ที่ชี้ไป /posts/ หรือ /permalink/ (ไม่ใช่ ?comment_id=)
+    const postLinks = Array.from(article.querySelectorAll(
+        'a[href*="/posts/"], a[href*="/permalink/"]'
+    ));
+    for (const lnk of postLinks) {
+        const href = lnk.getAttribute('href') || '';
+        if (href.includes('comment_id')) continue;
         result.post_url = href.startsWith('/') ? 'https://www.facebook.com' + href : href;
-        const m = href.match(/[/]posts[/]([0-9]+)|[/]permalink[/]([0-9]+)/);
+        const m = href.match(/\/posts\/([0-9]+)|\/permalink\/([0-9]+)/);
         if (m) result.external_id = m[1] || m[2];
+        break;
+    }
+    // For comments: grab comment_id for dedup
+    if (!result.external_id) {
+        const cmt = article.querySelector('a[href*="comment_id"]');
+        if (cmt) {
+            const href = cmt.getAttribute('href') || '';
+            const m = href.match(/comment_id=([0-9]+)/);
+            if (m) result.external_id = 'cmt_' + m[1];
+            result.post_url = href.startsWith('/') ? 'https://www.facebook.com' + href : href;
+        }
     }
 
     // === TIMESTAMP ===
-    const timeLink = article.querySelector('a[href*="/posts/"] span, a[href*="/permalink/"] span');
-    if (timeLink) result.timestamp = (timeLink.getAttribute('title') || timeLink.innerText || '').trim();
+    // abbr[data-utime] หรือ abbr[title] หรือ span บน post link
+    const abbrEl = article.querySelector('abbr[data-utime], abbr[title]');
+    if (abbrEl) {
+        result.timestamp = abbrEl.getAttribute('data-utime') || abbrEl.getAttribute('title') || (abbrEl.innerText || '').trim();
+    } else {
+        const timeSpan = article.querySelector('a[href*="/posts/"] span, a[href*="/permalink/"] span, a[href*="?story_fbid"] span');
+        if (timeSpan) result.timestamp = (timeSpan.getAttribute('title') || timeSpan.innerText || '').trim();
+    }
 
     // === CONTENT ===
-    // dir[auto] ทั้งหมด — อันแรกมักเป็นชื่อ ที่เหลือเป็น content
     const dirEls = Array.from(article.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
-    const dirTexts = [...new Set(dirEls.map(el => (el.innerText||'').trim()).filter(t => t.length > 0))];
-    // กรองชื่อออก + กรอง badge เช่น "Rising contributor" "All-star contributor"
-    const badges = new Set(['Rising contributor','All-star contributor','Top contributor','New member','Group Expert']);
+    const dirTexts = [...new Set(dirEls.map(el => (el.innerText || '').trim()).filter(t => t.length > 0))];
+    const badges = new Set([
+        'Rising contributor','All-star contributor','Top contributor',
+        'New member','Group Expert','Admin','Moderator',
+        'สมาชิกที่กำลังมาแรง','ผู้ร่วมกลุ่มระดับดาว','ผู้เชี่ยวชาญกลุ่ม'
+    ]);
     const contentLines = dirTexts.filter(t =>
         t !== result.author &&
         !badges.has(t) &&
         t.length > 5 &&
+        !/^[0-9]+\s*(h|m|d|w|y|hr|min|วัน|ชม|นาที|สัปดาห์)/.test(t) &&
         !/^[0-9]+[hmdwy]$/.test(t)
     );
-    // dedup nested (เอา unique)
-    result.content = [...new Set(contentLines)].slice(0, 8).join('\\n').slice(0, 6000);
+    result.content = [...new Set(contentLines)].slice(0, 12).join('\n').slice(0, 6000);
 
     // === IMAGES ===
-    // รอ lazy load: ดู img.src ที่มี scontent หรือ fbcdn
     const imgs = Array.from(article.querySelectorAll('img'));
     for (const img of imgs) {
-        const src = img.src || img.getAttribute('data-src') || '';
+        const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
         if (!src || src.startsWith('data:')) continue;
         if (!src.includes('scontent') && !src.includes('fbcdn.net')) continue;
-        if (src.includes('emoji') || src.includes('rsrc.php')) continue;
-        const w = img.naturalWidth || parseInt(img.getAttribute('width')||'999');
-        const h = img.naturalHeight || parseInt(img.getAttribute('height')||'999');
-        if (w > 0 && w <= 60 && h <= 60) continue;
+        if (src.includes('emoji') || src.includes('rsrc.php') || src.includes('safe_image')) continue;
+        // กรองรูปเล็ก (avatar, icon)
+        const w = img.naturalWidth || parseInt(img.getAttribute('width') || '0') || 999;
+        const h = img.naturalHeight || parseInt(img.getAttribute('height') || '0') || 999;
+        if (w > 0 && w <= 80 && h > 0 && h <= 80) continue;
         if (!result.images.includes(src)) result.images.push(src);
     }
-    // background-image
+    // background-image fallback
     const bgEls = Array.from(article.querySelectorAll('[style*="background-image"]'));
     for (const el of bgEls) {
         const style = el.getAttribute('style') || '';
-        const m = style.match(/url\\("(https:[^"]+scontent[^"]+)"\\)/);
+        const m = style.match(/url\("(https:[^"]+(?:scontent|fbcdn)[^"]+)"\)/);
         if (m && !result.images.includes(m[1])) result.images.push(m[1]);
     }
 
@@ -243,44 +287,56 @@ JS_EXTRACT = """
 
     // === ENGAGEMENT ===
     const parseNum = (t) => {
-        t = (t||'').replace(/,/g,'').trim().toLowerCase();
+        t = (t || '').replace(/,/g, '').trim().toLowerCase();
         const m = t.match(/([0-9.]+)([km]?)/);
         if (!m) return 0;
         let n = parseFloat(m[1]);
-        if (m[2]==='k') n*=1000; if (m[2]==='m') n*=1000000;
+        if (m[2] === 'k') n *= 1000;
+        if (m[2] === 'm') n *= 1000000;
         return Math.round(n);
     };
-    const rxnEl = article.querySelector('[aria-label*="reaction" i],[aria-label*="ปฏิกิริยา" i]');
-    if (rxnEl) result.likes = parseNum(rxnEl.innerText);
+    const rxnEl = article.querySelector(
+        '[aria-label*="reaction" i],[aria-label*="ปฏิกิริยา" i],' +
+        '[aria-label*="people reacted" i],[aria-label*="คนแสดงความรู้สึก" i]'
+    );
+    if (rxnEl) result.likes = parseNum(rxnEl.getAttribute('aria-label') || rxnEl.innerText);
     const cmtEl = article.querySelector('[aria-label*="comment" i],[aria-label*="ความคิดเห็น" i]');
-    if (cmtEl) result.comments = parseNum(cmtEl.innerText);
+    if (cmtEl) result.comments = parseNum(cmtEl.getAttribute('aria-label') || cmtEl.innerText);
     const shrEl = article.querySelector('[aria-label*="share" i],[aria-label*="การแชร์" i]');
-    if (shrEl) result.shares = parseNum(shrEl.innerText);
+    if (shrEl) result.shares = parseNum(shrEl.getAttribute('aria-label') || shrEl.innerText);
 
     return result;
 }
 """
 
 
-async def extract_posts(page, seen: set) -> list[dict]:
+async def extract_articles(page, seen: set) -> list[dict]:
     found = []
-    # รอให้รูป lazy load
-    await asyncio.sleep(2)
 
     try:
         articles = await page.query_selector_all('div[role="article"]')
-        print(f"    พบ {len(articles)} article elements")
+        if not articles:
+            print(f"    ⚠️ ไม่พบ article elements")
+            return found
+        print(f"    พบ {len(articles)} articles")
 
         for art in articles:
+            # Scroll into view เพื่อให้รูป lazy-load โหลด
+            try:
+                await art.scroll_into_view_if_needed()
+                await asyncio.sleep(0.25)
+            except Exception:
+                pass
+
             # คลิก "See more" / "ดูเพิ่มเติม"
             for see_sel in ['div[role="button"]', 'span[role="button"]']:
                 try:
                     btns = await art.query_selector_all(see_sel)
                     for btn in btns:
                         t = (await btn.inner_text()).strip()
-                        if t in ("See more", "ดูเพิ่มเติม", "See translation", "ดูการแปล"):
+                        if t in ("See more", "ดูเพิ่มเติม"):
                             await btn.click()
-                            await asyncio.sleep(0.5)
+                            await asyncio.sleep(0.4)
                 except Exception:
                     pass
 
@@ -290,20 +346,28 @@ async def extract_posts(page, seen: set) -> list[dict]:
                 print(f"  ⚠️ JS eval error: {e}")
                 continue
 
-            content = (data.get("content") or "").strip()
-            if not content or len(content) < 10:
+            if not data:
                 continue
 
-            # dedup
-            ext_id  = data.get("external_id", "")
-            dedup   = ext_id if ext_id else content[:120]
+            content = (data.get("content") or "").strip()
+            if not content or len(content) < 8:
+                continue
+
+            is_comment = data.get("is_comment", False)
+            ext_id     = data.get("external_id", "")
+
+            # Dedup key
+            if ext_id:
+                dedup = ext_id
+            else:
+                dedup = "h_" + hashlib.md5(content[:120].encode("utf-8", errors="ignore")).hexdigest()[:14]
+
             if dedup in seen:
                 continue
             seen.add(dedup)
-            if ext_id:
-                seen.add(ext_id)
 
             found.append({
+                "channel":     "facebook_comment" if is_comment else "facebook",
                 "author":      data.get("author") or "Unknown",
                 "author_id":   data.get("author_id") or "",
                 "author_url":  data.get("author_url") or "",
@@ -316,6 +380,7 @@ async def extract_posts(page, seen: set) -> list[dict]:
                 "comments":    data.get("comments") or 0,
                 "shares":      data.get("shares") or 0,
                 "post_type":   data.get("post_type") or "text",
+                "is_comment":  is_comment,
             })
 
     except Exception as e:
@@ -327,18 +392,18 @@ async def extract_posts(page, seen: set) -> list[dict]:
 async def send_post(session: aiohttp.ClientSession, post: dict):
     images = post.get("images") or []
     payload = {
-        "channel":     "facebook",
-        "author":      post["author"],
-        "author_id":   post["author_id"] or None,
-        "external_id": post["external_id"] or None,
-        "content":     post["content"],
-        "url":         post["url"],
-        "image_url":   images[0] if images else None,
-        "image_urls":  images,
+        "channel":      post["channel"],
+        "author":       post["author"],
+        "author_id":    post["author_id"] or None,
+        "external_id":  post["external_id"] or None,
+        "content":      post["content"],
+        "url":          post["url"],
+        "image_url":    images[0] if images else None,
+        "image_urls":   images,
         "published_at": post["timestamp"] or None,
-        "likes":       post["likes"],
-        "comments":    post["comments"],
-        "shares":      post["shares"],
+        "likes":        post["likes"],
+        "comments":     post["comments"],
+        "shares":       post["shares"],
     }
     try:
         async with session.post(WEBHOOK_URL, json=payload,
@@ -353,41 +418,54 @@ async def send_post(session: aiohttp.ClientSession, post: dict):
 
 
 async def scrape_once(page, seen: set) -> int:
-    print(f"\n📜 Scroll {SCROLL_ROUNDS} รอบ...")
-    all_posts: list[dict] = []
+    print(f"\n📜 เริ่ม scrape...")
+    all_items: list[dict] = []
 
+    # Pre-scroll: ข้ามส่วน header / featured / admin panel ให้โพสต์โหลด
+    print("  ⬇️  scroll ผ่าน header เพื่อโหลดโพสต์...")
+    for _ in range(4):
+        await page.evaluate("window.scrollBy(0, window.innerHeight * 1.5)")
+        await asyncio.sleep(2.5)
+
+    # Main loop: extract แล้วค่อย scroll ต่อ
     for i in range(SCROLL_ROUNDS):
-        new = await extract_posts(page, seen)
-        all_posts.extend(new)
-        print(f"  รอบ {i+1}/{SCROLL_ROUNDS}: +{len(new)} โพสต์ใหม่ (รวม {len(all_posts)})")
+        new = await extract_articles(page, seen)
+        posts_cnt   = sum(1 for p in new if not p["is_comment"])
+        comment_cnt = sum(1 for p in new if p["is_comment"])
+        all_items.extend(new)
+        print(f"  รอบ {i+1}/{SCROLL_ROUNDS}: +{posts_cnt} โพสต์ +{comment_cnt} comment "
+              f"(รวม {len(all_items)})")
         await page.evaluate("window.scrollBy(0, window.innerHeight * 2.5)")
         await asyncio.sleep(3.5)
 
     await page.evaluate("window.scrollTo(0, 0)")
     await asyncio.sleep(1)
 
-    if not all_posts:
-        print("  ⚠️  ไม่พบโพสต์ใหม่รอบนี้")
+    if not all_items:
+        print("  ⚠️  ไม่พบข้อมูลใหม่รอบนี้")
         return 0
 
-    print(f"\n📡 ส่ง {len(all_posts)} โพสต์ → SocialEye...")
+    posts_total   = sum(1 for p in all_items if not p["is_comment"])
+    comment_total = sum(1 for p in all_items if p["is_comment"])
+    print(f"\n📡 ส่ง {posts_total} โพสต์ + {comment_total} comment → SocialEye...")
     sent = matched = 0
 
     async with aiohttp.ClientSession() as http:
-        for post in all_posts:
-            res = await send_post(http, post)
+        for item in all_items:
+            res = await send_post(http, item)
             if res:
                 sent += 1
                 kw      = res.get("keywords_matched", 0)
                 matched += 1 if kw > 0 else 0
-                img_tag  = f"🖼x{len(post['images'])}" if post["images"] else ""
+                img_tag  = f"🖼x{len(item['images'])}" if item["images"] else ""
+                tag      = "💬" if item["is_comment"] else "📝"
                 flag     = "⭐" if kw > 0 else " ✓"
-                print(f"  {flag}{img_tag}[❤{post['likes']}💬{post['comments']}] "
-                      f"{post['author'][:18]}: {post['content'][:55]}…")
+                print(f"  {flag}{tag}{img_tag}[❤{item['likes']}] "
+                      f"{item['author'][:18]}: {item['content'][:55]}…")
             await asyncio.sleep(0.3)
 
     save_seen(seen)
-    print(f"  → ส่งสำเร็จ {sent}/{len(all_posts)} | keyword hits: {matched}")
+    print(f"  → ส่งสำเร็จ {sent}/{len(all_items)} | keyword hits: {matched}")
     return sent
 
 
@@ -402,6 +480,9 @@ async def run():
     except ImportError:
         print("❌ ยังไม่ได้ติดตั้ง playwright — รัน: python -m playwright install chromium")
         sys.exit(1)
+
+    # URL แบบ recent activity — ข้ามหน้า admin overview
+    group_url = FB_GROUP_URL.rstrip("/") + "?sorting_setting=RECENT_ACTIVITY"
 
     seen = load_seen()
     print(f"📋 โพสต์ที่เคยเห็นแล้ว: {len(seen)} รายการ")
@@ -444,9 +525,9 @@ async def run():
             await ctx.storage_state(path=str(SESSION_FILE))
             print("💾 บันทึก session แล้ว")
 
-        print(f"\n📁 กำลังเปิดกลุ่ม...")
-        await page.goto(FB_GROUP_URL, wait_until="domcontentloaded")
-        await asyncio.sleep(5)
+        print(f"\n📁 กำลังเปิดกลุ่ม (recent activity feed)...")
+        await page.goto(group_url, wait_until="domcontentloaded")
+        await asyncio.sleep(6)
 
         if "login" in page.url.lower():
             print("❌ Redirect ไป login — ลบ session แล้วรันใหม่")
@@ -454,12 +535,14 @@ async def run():
             await browser.close()
             return
 
-        body = (await page.inner_text("body"))[:800].lower()
+        body = (await page.inner_text("body"))[:600].lower()
         if any(k in body for k in ["join group", "request to join", "ขอเข้าร่วม"]):
             print("❌ ยังไม่ได้เป็น member ของกลุ่มนี้")
             await browser.close()
             return
 
+        # Debug: แสดง body สั้น ๆ เพื่อยืนยันว่าโหลดถูกหน้า
+        print(f"📄 Page body (200 chars): {(await page.inner_text('body'))[:200]}")
         print(f"✅ เข้ากลุ่มได้แล้ว — เริ่ม loop ทุก {INTERVAL_MIN} นาที\n")
 
         round_no = 0
@@ -469,15 +552,15 @@ async def run():
             print(f"🔄 รอบที่ {round_no} — {time.strftime('%Y-%m-%d %H:%M:%S')}")
             print(f"{'='*60}")
 
-            await page.goto(FB_GROUP_URL, wait_until="domcontentloaded")
-            await asyncio.sleep(4)
+            await page.goto(group_url, wait_until="domcontentloaded")
+            await asyncio.sleep(5)
 
             if not await is_logged_in(page):
                 print("⚠️  Session หมดอายุ — login ใหม่")
                 if await do_login(page):
                     await ctx.storage_state(path=str(SESSION_FILE))
-                    await page.goto(FB_GROUP_URL, wait_until="domcontentloaded")
-                    await asyncio.sleep(4)
+                    await page.goto(group_url, wait_until="domcontentloaded")
+                    await asyncio.sleep(5)
 
             await scrape_once(page, seen)
 

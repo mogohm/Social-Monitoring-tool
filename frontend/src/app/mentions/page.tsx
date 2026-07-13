@@ -7,7 +7,7 @@ import MentionCard, { type MentionData } from "@/components/MentionCard";
 import MentionDetail from "@/components/MentionDetail";
 import { RefreshCw, Tag } from "lucide-react";
 
-const CHANNELS   = ["", "facebook", "twitter", "tiktok", "youtube", "line_oa", "instagram", "pantip", "news"];
+const CHANNELS   = ["", "facebook", "facebook_comment", "twitter", "tiktok", "youtube", "line_oa", "instagram", "pantip", "news"];
 const SENTIMENTS = ["", "positive", "neutral", "negative"];
 const PRIORITIES = ["", "low", "medium", "high", "critical"];
 

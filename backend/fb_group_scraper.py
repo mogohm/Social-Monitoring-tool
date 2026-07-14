@@ -150,7 +150,7 @@ JS_EXTRACT = r"""
         author: '', author_url: '', author_id: '',
         content: '', post_url: '', external_id: '',
         timestamp: '', post_type: 'text', is_comment: false,
-        likes: 0, comments: 0, shares: 0,
+        likes: 0, comments: 0, shares: 0, views: 0,
         images: []
     };
 
@@ -254,6 +254,22 @@ JS_EXTRACT = r"""
     }
 
     // === CONTENT ===
+    // cleanLine removes embedded noise while preserving real text
+    const cleanLine = (line) => {
+        return line
+            .replace(/\bhttps?:\/\/\S+/gi, '')                          // full URLs
+            .replace(/\b[A-Za-z0-9]{2,15}\.[a-z]{2,6}(?:\/\S*)?\b/gi, '') // short FB spam links
+            .replace(/\b[A-Za-z0-9]{15,}\b/g, '')                       // garbled alphanumeric tokens
+            .replace(/(\b[A-Za-z0-9]\s){5,}/g, ' ')                     // spaced-out chars (obfuscation)
+            .replace(/Photos?\s+from\s+.+?(?:'s)?\s+post\b/gi, '')
+            .replace(/View\s+insights?\s*[·•\-]?\s*\d[\d.,kKmM]*\s+(?:post\s+reach|การเข้าถึงโพสต์)/gi, '')
+            .replace(/\d[\d.,kKmM]*\s+(?:post\s+reach|การเข้าถึงโพสต์)/gi, '')
+            .replace(/View\s+(?:more\s+)?comments?/gi, '')
+            .replace(/View\s+(?:all\s+)?\d+\s+repl(?:y|ies)/gi, '')
+            .replace(/See\s+(?:more|less|translation)/gi, '')
+            .replace(/was\s+live\.?/gi, '')
+            .replace(/\s{2,}/g, ' ').trim();
+    };
     const dirEls = Array.from(article.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
     const dirTexts = [...new Set(dirEls.map(el => (el.innerText || '').trim()).filter(t => t.length > 0))];
     const badges = new Set([
@@ -263,21 +279,21 @@ JS_EXTRACT = r"""
         'Facebook','Like','Comment','Share','Follow','See more','See translation',
         'ดูเพิ่มเติม','ถูกใจ','ความคิดเห็น','แชร์','ติดตาม','ดูการแปล'
     ]);
-    const contentLines = dirTexts.filter(t =>
-        t !== result.author &&
-        !badges.has(t) &&
-        t.length > 5 &&
-        !/^[0-9]+\s*(h|m|d|w|y|hr|min|วัน|ชม|นาที|สัปดาห์)/.test(t) &&
-        !/^[0-9]+[hmdwy]$/.test(t) &&
-        // Filter garbled Facebook metadata (long random alphanumeric, no spaces)
-        !/^[A-Za-z0-9]{30,}$/.test(t) &&
-        // Filter FB short-link spam (e.g. UZZdZq.com, BcUr828en.com)
-        !/^[A-Za-z0-9]{4,10}\.(com|net|org|io)$/.test(t) &&
-        // Filter FB obfuscated metadata string (contains 'spnrS' pattern)
-        !t.includes('spnrS') &&
-        !t.includes('Soeodta')
-    );
-    result.content = [...new Set(contentLines)].slice(0, 12).join('\n').slice(0, 6000);
+    const contentLines = dirTexts
+        .filter(t =>
+            t !== result.author &&
+            !badges.has(t) &&
+            t.length > 5 &&
+            !/^[0-9]+\s*(h|m|d|w|y|hr|min|วัน|ชม|นาที|สัปดาห์)/.test(t) &&
+            !/^[0-9]+[hmdwy]$/.test(t) &&
+            !/^[A-Za-z0-9]{15,}$/.test(t) &&
+            !/^[A-Za-z0-9]{4,15}\.(com|net|org|io|co\.th)$/.test(t) &&
+            !t.includes('spnrS') &&
+            !t.includes('Soeodta')
+        )
+        .map(cleanLine)
+        .filter(t => t.length > 5);
+    result.content = [...new Set(contentLines)].slice(0, 4).join('\n').slice(0, 3000);
 
     // === IMAGES ===
     // NOTE: img.src (property) returns page URL when src="" — must use getAttribute
@@ -299,12 +315,12 @@ JS_EXTRACT = r"""
         if (attrW > 0 && attrW <= 80 && attrH > 0 && attrH <= 80) continue;
         if (!result.images.includes(src)) result.images.push(src);
     }
-    // background-image fallback
+    // background-image fallback — only scontent CDN, exclude rsrc.php icons
     const bgEls = Array.from(article.querySelectorAll('[style*="background-image"]'));
     for (const el of bgEls) {
         const style = el.getAttribute('style') || '';
-        const m = style.match(/url\("(https:[^"]+(?:scontent|fbcdn)[^"]+)"\)/);
-        if (m && !result.images.includes(m[1])) result.images.push(m[1]);
+        const m = style.match(/url\("(https:[^"]+scontent[^"]+)"\)/);
+        if (m && !m[1].includes('rsrc.php') && !result.images.includes(m[1])) result.images.push(m[1]);
     }
 
     if (article.querySelector('video')) result.post_type = 'video';
@@ -313,13 +329,14 @@ JS_EXTRACT = r"""
     // === ENGAGEMENT ===
     const parseNum = (t) => {
         t = (t || '').replace(/,/g, '').trim().toLowerCase();
-        const m = t.match(/([0-9.]+)([km]?)/);
+        const m = t.match(/([0-9.]+)\s*([km]?)/);
         if (!m) return 0;
         let n = parseFloat(m[1]);
         if (m[2] === 'k') n *= 1000;
         if (m[2] === 'm') n *= 1000000;
         return Math.round(n);
     };
+    // 1. Try DOM aria-label selectors first
     const rxnEl = article.querySelector(
         '[aria-label*="reaction" i],[aria-label*="ปฏิกิริยา" i],' +
         '[aria-label*="people reacted" i],[aria-label*="คนแสดงความรู้สึก" i]'
@@ -329,6 +346,28 @@ JS_EXTRACT = r"""
     if (cmtEl) result.comments = parseNum(cmtEl.getAttribute('aria-label') || cmtEl.innerText);
     const shrEl = article.querySelector('[aria-label*="share" i],[aria-label*="การแชร์" i]');
     if (shrEl) result.shares = parseNum(shrEl.getAttribute('aria-label') || shrEl.innerText);
+
+    // 2. Text-based fallback — parse from visible text in the post card
+    const fullText = article.innerText || '';
+    if (result.likes === 0) {
+        // "1.2K reactions", "45 people reacted", "1,200 คนแสดงความรู้สึก", "ถูกใจ 45"
+        const rxM = fullText.match(/([0-9][0-9,.]*\s*[KkMm]?)\s+(?:reaction|people\s+reacted|คนแสดงความรู้สึก)/i)
+                 || fullText.match(/(?:ถูกใจ|Like)\s+([0-9][0-9,.]*\s*[KkMm]?)/i);
+        if (rxM) result.likes = parseNum(rxM[1]);
+    }
+    if (result.comments === 0) {
+        const cmM = fullText.match(/([0-9][0-9,.]*\s*[KkMm]?)\s+(?:comment|ความคิดเห็น)/i)
+                 || fullText.match(/(?:ความคิดเห็น|Comment)\s+([0-9][0-9,.]*\s*[KkMm]?)/i);
+        if (cmM) result.comments = parseNum(cmM[1]);
+    }
+    if (result.shares === 0) {
+        const shM = fullText.match(/([0-9][0-9,.]*\s*[KkMm]?)\s+(?:share|การแชร์)/i)
+                 || fullText.match(/(?:การแชร์|Share)\s+([0-9][0-9,.]*\s*[KkMm]?)/i);
+        if (shM) result.shares = parseNum(shM[1]);
+    }
+    // Post reach → views ("2.7K post reach", "2,700 การเข้าถึงโพสต์")
+    const reachM = fullText.match(/([0-9][0-9,.]*\s*[KkMm]?)\s+(?:post\s+reach|การเข้าถึงโพสต์)/i);
+    if (reachM) result.views = parseNum(reachM[1]);
 
     return result;
 }
@@ -388,6 +427,7 @@ async def _process_element(el, is_comment: bool, seen: set) -> dict | None:
         "likes":       data.get("likes") or 0,
         "comments":    data.get("comments") or 0,
         "shares":      data.get("shares") or 0,
+        "views":       data.get("views") or 0,
         "post_type":   data.get("post_type") or "text",
         "is_comment":  is_comment,
     }
@@ -465,6 +505,7 @@ async def send_post(session: aiohttp.ClientSession, post: dict):
         "likes":        post["likes"],
         "comments":     post["comments"],
         "shares":       post["shares"],
+        "views":        post.get("views", 0),
     }
     try:
         async with session.post(WEBHOOK_URL, json=payload,

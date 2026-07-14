@@ -148,6 +148,7 @@ export default function MentionCard({ mention, onViewDetail }: Props) {
             <img
               src={imageSrc}
               alt="post image"
+              referrerPolicy="no-referrer"
               className="w-full object-cover max-h-52"
               onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
             />

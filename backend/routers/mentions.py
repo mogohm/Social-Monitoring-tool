@@ -331,6 +331,7 @@ def _serialize(m: Mention) -> dict:
         "author": m.author,
         "content": m.content,
         "url": m.url,
+        "image_url": m.image_url,
         "sentiment": m.sentiment,
         "emotion": m.emotion,
         "intent": m.intent,

@@ -296,23 +296,20 @@ JS_EXTRACT = r"""
     result.content = [...new Set(contentLines)].slice(0, 4).join('\n').slice(0, 3000);
 
     // === IMAGES ===
-    // NOTE: img.src (property) returns page URL when src="" — must use getAttribute
     const imgs = Array.from(article.querySelectorAll('img'));
     for (const img of imgs) {
         const attrSrc = img.getAttribute('src') || '';
-        // Use currentSrc (actual loading URL) first, then explicit attribute, then data-src
         const src = img.currentSrc
             || (attrSrc.startsWith('http') ? attrSrc : '')
             || img.getAttribute('data-src')
             || img.getAttribute('data-lazy-src')
             || '';
         if (!src || src.startsWith('data:')) continue;
-        if (!src.includes('scontent') && !src.includes('fbcdn')) continue;
+        if (!src.includes('scontent')) continue;  // only real content CDN
         if (src.includes('emoji') || src.includes('rsrc.php') || src.includes('safe_image')) continue;
-        // Skip profile pics / UI icons by attribute dimensions only (naturalWidth unreliable before load)
-        const attrW = parseInt(img.getAttribute('width') || '0');
-        const attrH = parseInt(img.getAttribute('height') || '0');
-        if (attrW > 0 && attrW <= 80 && attrH > 0 && attrH <= 80) continue;
+        // Skip icons/profile pics: loaded images with naturalWidth <= 60 are tiny UI elements
+        // Unloaded images (naturalWidth=0) pass through — size unknown, keep them
+        if (img.naturalWidth > 0 && img.naturalWidth <= 60) continue;
         if (!result.images.includes(src)) result.images.push(src);
     }
     // background-image fallback — only scontent CDN, exclude rsrc.php icons
@@ -327,6 +324,10 @@ JS_EXTRACT = r"""
     else if (result.images.length > 0) result.post_type = 'photo';
 
     // === ENGAGEMENT ===
+    // Debug data shows Facebook uses:
+    //   div[aria-label="Like"] with innerText = reaction count (e.g. "3", "31")
+    //   div[aria-label="Leave a comment"] with innerText = comment count
+    //   [aria-label="X people"] breakdown elements (e.g. "Like: 22 people", "Haha: 5 people")
     const parseNum = (t) => {
         t = (t || '').replace(/,/g, '').trim().toLowerCase();
         const m = t.match(/([0-9.]+)\s*([km]?)/);
@@ -336,38 +337,32 @@ JS_EXTRACT = r"""
         if (m[2] === 'm') n *= 1000000;
         return Math.round(n);
     };
-    // 1. Try DOM aria-label selectors first
-    const rxnEl = article.querySelector(
-        '[aria-label*="reaction" i],[aria-label*="ปฏิกิริยา" i],' +
-        '[aria-label*="people reacted" i],[aria-label*="คนแสดงความรู้สึก" i]'
-    );
-    if (rxnEl) result.likes = parseNum(rxnEl.getAttribute('aria-label') || rxnEl.innerText);
-    const cmtEl = article.querySelector('[aria-label*="comment" i],[aria-label*="ความคิดเห็น" i]');
-    if (cmtEl) result.comments = parseNum(cmtEl.getAttribute('aria-label') || cmtEl.innerText);
-    const shrEl = article.querySelector('[aria-label*="share" i],[aria-label*="การแชร์" i]');
-    if (shrEl) result.shares = parseNum(shrEl.getAttribute('aria-label') || shrEl.innerText);
 
-    // 2. Text-based fallback — parse from visible text in the post card
-    const fullText = article.innerText || '';
-    if (result.likes === 0) {
-        // "1.2K reactions", "45 people reacted", "1,200 คนแสดงความรู้สึก", "ถูกใจ 45"
-        const rxM = fullText.match(/([0-9][0-9,.]*\s*[KkMm]?)\s+(?:reaction|people\s+reacted|คนแสดงความรู้สึก)/i)
-                 || fullText.match(/(?:ถูกใจ|Like)\s+([0-9][0-9,.]*\s*[KkMm]?)/i);
-        if (rxM) result.likes = parseNum(rxM[1]);
+    // Likes: reaction count button (innerText = number), first match = post level
+    const likeBtn = article.querySelector('div[aria-label="Like"], div[aria-label="ถูกใจ"]');
+    if (likeBtn) {
+        const t = (likeBtn.innerText || '').trim();
+        if (/^[\d.,KkMm]+$/.test(t)) result.likes = parseNum(t);
     }
-    if (result.comments === 0) {
-        const cmM = fullText.match(/([0-9][0-9,.]*\s*[KkMm]?)\s+(?:comment|ความคิดเห็น)/i)
-                 || fullText.match(/(?:ความคิดเห็น|Comment)\s+([0-9][0-9,.]*\s*[KkMm]?)/i);
-        if (cmM) result.comments = parseNum(cmM[1]);
+    // Also sum reaction breakdown elements ("Like: 22 people", "Haha: 5 people", etc.)
+    // as a cross-check / fallback
+    let rxnSum = 0;
+    for (const el of article.querySelectorAll('[aria-label$=" people"]')) {
+        const lbl = el.getAttribute('aria-label') || '';
+        const m = lbl.match(/([0-9,]+)\s+people/);
+        if (m) rxnSum += parseInt(m[1].replace(/,/g, ''), 10);
     }
-    if (result.shares === 0) {
-        const shM = fullText.match(/([0-9][0-9,.]*\s*[KkMm]?)\s+(?:share|การแชร์)/i)
-                 || fullText.match(/(?:การแชร์|Share)\s+([0-9][0-9,.]*\s*[KkMm]?)/i);
-        if (shM) result.shares = parseNum(shM[1]);
+    if (rxnSum > result.likes) result.likes = rxnSum;
+
+    // Comments: comment count button
+    const cmtBtn = article.querySelector('div[aria-label="Leave a comment"], div[aria-label="แสดงความคิดเห็น"]');
+    if (cmtBtn) {
+        const t = (cmtBtn.innerText || '').trim();
+        if (/^[\d.,KkMm]+$/.test(t)) result.comments = parseNum(t);
     }
-    // Post reach → views ("2.7K post reach", "2,700 การเข้าถึงโพสต์")
-    const reachM = fullText.match(/([0-9][0-9,.]*\s*[KkMm]?)\s+(?:post\s+reach|การเข้าถึงโพสต์)/i);
-    if (reachM) result.views = parseNum(reachM[1]);
+
+    // Shares: typically no visible counter in group feed; leave as 0
+    // Views: post reach — only shown in post insights link text (not innerText accessible here)
 
     return result;
 }
@@ -378,7 +373,7 @@ async def _process_element(el, is_comment: bool, seen: set) -> dict | None:
     """สกัดข้อมูลจาก element เดียว (post card หรือ comment article)"""
     try:
         await el.scroll_into_view_if_needed()
-        await asyncio.sleep(1.5)  # Allow time for lazy-loaded images to get src set
+        await asyncio.sleep(3.0)  # Allow time for lazy-loaded images to load (naturalWidth needs time)
     except Exception:
         pass
 

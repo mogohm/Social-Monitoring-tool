@@ -64,7 +64,10 @@ export default function MentionDetail({ mentionId, onClose }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const tags: MentionData["tags"] = Array.isArray(data?.tags) ? data!.tags : [];
+  // Filter to valid keyword tags only — exclude metadata objects like {image_urls:[...]}
+  const tags: MentionData["tags"] = Array.isArray(data?.tags)
+    ? (data!.tags as any[]).filter((t) => typeof t?.word === "string")
+    : [];
 
   return (
     <>

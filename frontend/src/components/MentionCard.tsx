@@ -85,7 +85,18 @@ interface Props {
 }
 
 export default function MentionCard({ mention, onViewDetail }: Props) {
-  const tags: MentionData["tags"] = Array.isArray(mention.tags) ? mention.tags : [];
+  // Filter to valid keyword tags only — exclude metadata objects like {image_urls:[...]}
+  const tags: MentionData["tags"] = Array.isArray(mention.tags)
+    ? (mention.tags as any[]).filter((t) => typeof t?.word === "string")
+    : [];
+  // Use image_url if available, otherwise fall back to first image in tags metadata
+  const imageSrc: string | null =
+    mention.image_url ||
+    (() => {
+      if (!Array.isArray(mention.tags)) return null;
+      const meta = (mention.tags as any[]).find((t) => Array.isArray(t?.image_urls));
+      return meta?.image_urls?.[0] ?? null;
+    })();
 
   return (
     <div className={`bg-white rounded-xl border-2 shadow-sm p-4 space-y-3 hover:shadow-md transition-shadow ${mention.priority === "critical" ? "border-red-300" : "border-gray-200"}`}>
@@ -132,10 +143,10 @@ export default function MentionCard({ mention, onViewDetail }: Props) {
           )}
         </div>
         {/* Post image */}
-        {mention.image_url && (
+        {imageSrc && (
           <div className="mb-2 rounded-lg overflow-hidden border border-gray-200 max-h-52">
             <img
-              src={mention.image_url}
+              src={imageSrc}
               alt="post image"
               className="w-full object-cover max-h-52"
               onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}

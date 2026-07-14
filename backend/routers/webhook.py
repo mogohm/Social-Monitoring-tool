@@ -55,15 +55,18 @@ async def generic_webhook(payload: MentionPayload):
             except Exception:
                 pass
 
-        # รูปหลัก — ใช้รูปแรกใน image_urls ถ้ามี
-        img_url = payload.image_url
-        if not img_url and payload.image_urls:
-            img_url = payload.image_urls[0] if payload.image_urls else None
+        # รูปหลัก — ใช้รูปแรกใน image_urls ถ้ามี (filter rsrc.php / static icons)
+        def _is_content_image(url: str) -> bool:
+            return bool(url and "scontent" in url and "rsrc.php" not in url)
 
-        # เก็บรูปทั้งหมดไว้ใน tags extra
+        img_url = payload.image_url if _is_content_image(payload.image_url or "") else None
+        if not img_url and payload.image_urls:
+            for u in payload.image_urls:
+                if _is_content_image(u):
+                    img_url = u
+                    break
+
         extra_tags = tags if tags else []
-        if payload.image_urls and len(payload.image_urls) > 1:
-            extra_tags = extra_tags + [{"image_urls": payload.image_urls}]
 
         mention = Mention(
             channel=payload.channel,

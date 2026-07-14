@@ -254,46 +254,53 @@ JS_EXTRACT = r"""
     }
 
     // === CONTENT ===
-    // cleanLine removes embedded noise while preserving real text
+    // cleanLine removes embedded Facebook UI noise while preserving actual post text
+    const FB_UI = /View\s+insights?|View\s+more\s+(?:comments?|answers?|replies?)|View\s+(?:all\s+)?\d+\s+repl(?:y|ies)|Hide\s+translation|See\s+(?:more|less|translation|original)|was\s+live\.?|Photos?\s+from\s+.+?(?:'s)?\s+post|Original\s+audio/gi;
     const cleanLine = (line) => {
         return line
-            .replace(/\bhttps?:\/\/\S+/gi, '')                          // full URLs
-            .replace(/\b[A-Za-z0-9]{2,15}\.[a-z]{2,6}(?:\/\S*)?\b/gi, '') // short FB spam links
-            .replace(/\b[A-Za-z0-9]{15,}\b/g, '')                       // garbled alphanumeric tokens
-            .replace(/(\b[A-Za-z0-9]\s){5,}/g, ' ')                     // spaced-out chars (obfuscation)
-            .replace(/Photos?\s+from\s+.+?(?:'s)?\s+post\b/gi, '')
-            .replace(/View\s+insights?\s*[·•\-]?\s*\d[\d.,kKmM]*\s+(?:post\s+reach|การเข้าถึงโพสต์)/gi, '')
-            .replace(/\d[\d.,kKmM]*\s+(?:post\s+reach|การเข้าถึงโพสต์)/gi, '')
-            .replace(/View\s+(?:more\s+)?comments?/gi, '')
-            .replace(/View\s+(?:all\s+)?\d+\s+repl(?:y|ies)/gi, '')
-            .replace(/See\s+(?:more|less|translation)/gi, '')
-            .replace(/was\s+live\.?/gi, '')
+            .replace(/\bhttps?:\/\/\S+/gi, '')
+            .replace(FB_UI, '')
+            .replace(/\b[A-Za-z0-9]{2,15}\.[a-z]{2,6}(?:\/\S*)?\b/gi, '') // short spam links
+            .replace(/\b[A-Za-z0-9]{12,}\b/g, '')                           // garbled tokens (lowered from 15→12)
+            .replace(/(\b[A-Za-z0-9]\s){5,}/g, ' ')                         // spaced-out obfuscation
+            .replace(/\d[\d.,]*\s*[KkMm]?\s+(?:post\s+reach|การเข้าถึงโพสต์)/gi, '')
             .replace(/\s{2,}/g, ' ').trim();
     };
-    const dirEls = Array.from(article.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
+    // Only extract direct children text elements (not deeply nested comment/reaction areas)
+    // Use div[dir="auto"] at controlled depth to avoid comment section text leaking in
+    const dirEls = Array.from(article.querySelectorAll(
+        ':scope > div div[dir="auto"], :scope > div span[dir="auto"]'
+    )).filter(el => {
+        // Exclude elements inside reaction bars and comment sections
+        const p = el.closest('[aria-label*="comment" i], [aria-label*="reaction" i], [data-visualcompletion]');
+        return !p;
+    });
     const dirTexts = [...new Set(dirEls.map(el => (el.innerText || '').trim()).filter(t => t.length > 0))];
-    const badges = new Set([
-        'Rising contributor','All-star contributor','Top contributor',
-        'New member','Group Expert','Admin','Moderator',
+    const UI_LINES = new Set([
+        'Rising contributor','All-star contributor','Top contributor','New member','Group Expert','Admin','Moderator',
         'สมาชิกที่กำลังมาแรง','ผู้ร่วมกลุ่มระดับดาว','ผู้เชี่ยวชาญกลุ่ม',
-        'Facebook','Like','Comment','Share','Follow','See more','See translation',
-        'ดูเพิ่มเติม','ถูกใจ','ความคิดเห็น','แชร์','ติดตาม','ดูการแปล'
+        'Facebook','Like','Comment','Share','Follow','Send','React',
+        'See more','See translation','See original','See less','Hide translation',
+        'View insights','View more comments','View more answers',
+        'ดูเพิ่มเติม','ถูกใจ','ความคิดเห็น','แชร์','ติดตาม','ดูการแปล','Reply',
+        'Write a comment…','Write a public comment…','เขียนความคิดเห็น'
     ]);
     const contentLines = dirTexts
         .filter(t =>
             t !== result.author &&
-            !badges.has(t) &&
+            !UI_LINES.has(t) &&
+            !t.startsWith('View insights') &&
+            !t.startsWith('Hide translation') &&
             t.length > 5 &&
             !/^[0-9]+\s*(h|m|d|w|y|hr|min|วัน|ชม|นาที|สัปดาห์)/.test(t) &&
             !/^[0-9]+[hmdwy]$/.test(t) &&
-            !/^[A-Za-z0-9]{15,}$/.test(t) &&
+            !/^[A-Za-z0-9]{12,}$/.test(t) &&
             !/^[A-Za-z0-9]{4,15}\.(com|net|org|io|co\.th)$/.test(t) &&
-            !t.includes('spnrS') &&
-            !t.includes('Soeodta')
+            !t.includes('spnrS') && !t.includes('Soeodta')
         )
         .map(cleanLine)
-        .filter(t => t.length > 5);
-    result.content = [...new Set(contentLines)].slice(0, 4).join('\n').slice(0, 3000);
+        .filter(t => t.length > 5 && !t.match(/^[·•\-\s]+$/));
+    result.content = [...new Set(contentLines)].slice(0, 3).join('\n').slice(0, 2000);
 
     // === IMAGES ===
     const imgs = Array.from(article.querySelectorAll('img'));

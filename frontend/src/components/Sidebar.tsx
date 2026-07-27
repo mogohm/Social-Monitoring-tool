@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, MessageSquare, BarChart2, TrendingUp,
   Users, AlertTriangle, ShieldCheck, FileText, Settings,
-  Bell, Database, Search, Tag, Plug, PlusCircle, UserCheck,
+  Bell, Database, Search, Tag, Plug, PlusCircle, UserCheck, BookOpen,
 } from "lucide-react";
 
 const nav = [
@@ -24,6 +24,7 @@ const nav = [
   { href: "/integrations", label: "Integration Guide", icon: Plug },
   { href: "/query-builder", label: "Query Builder", icon: Search },
   { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/manual", label: "คู่มือการใช้งาน", icon: BookOpen },
 ];
 
 export default function Sidebar() {

@@ -101,15 +101,15 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"))
     name: Mapped[str] = mapped_column(String(255))
-    condition_type: Mapped[str] = mapped_column(String(50))
-    threshold: Mapped[float | None] = mapped_column(Float)
-    keywords: Mapped[list | None] = mapped_column(JSON)
-    channels: Mapped[list | None] = mapped_column(JSON)
+    # condition_type: "all" | "keyword_match" | "risk_score" | "category"
+    condition_type: Mapped[str] = mapped_column(String(50), default="keyword_match")
+    threshold: Mapped[float | None] = mapped_column(Float)          # risk_score min
+    keywords: Mapped[list | None] = mapped_column(JSON)             # specific keywords to watch ([] = any)
+    category_filter: Mapped[list | None] = mapped_column(JSON)      # categories to watch
+    channels: Mapped[list | None] = mapped_column(JSON)             # facebook, etc. ([] = all)
+    email_recipients: Mapped[list | None] = mapped_column(JSON)     # ["a@b.com", "c@d.com"]
     notify_email: Mapped[bool] = mapped_column(Boolean, default=True)
-    notify_line: Mapped[bool] = mapped_column(Boolean, default=False)
-    notify_telegram: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

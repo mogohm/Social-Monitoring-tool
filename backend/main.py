@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from backend.models.database import engine, Base, AsyncSessionLocal
 from backend.models.models import Keyword, MonitoredChannel, ScraperConfig
-from backend.routers import mentions, qc, webhook, keywords, channels, admin
-from sqlalchemy import select
+from backend.routers import mentions, qc, webhook, keywords, channels, admin, alerts
+from sqlalchemy import select, text
 
 DEFAULT_KEYWORDS = [
     {"word": "N8", "category": "brand", "is_negative": False},
@@ -31,6 +31,15 @@ CHANNEL_DISPLAY = {
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add new columns to alerts table if they don't exist (idempotent)
+        for col_sql in [
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS email_recipients JSONB DEFAULT '[]'",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS category_filter  JSONB DEFAULT '[]'",
+        ]:
+            try:
+                await conn.execute(text(col_sql))
+            except Exception:
+                pass
     async with AsyncSessionLocal() as db:
         for kw_data in DEFAULT_KEYWORDS:
             exists = (await db.execute(
@@ -73,6 +82,7 @@ app.include_router(webhook.router)
 app.include_router(keywords.router)
 app.include_router(channels.router)
 app.include_router(admin.router)
+app.include_router(alerts.router)
 
 
 @app.get("/")

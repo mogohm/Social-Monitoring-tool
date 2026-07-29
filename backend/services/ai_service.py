@@ -11,6 +11,23 @@ except Exception:
 NEGATIVE_KEYWORDS = ["แย่", "หลอก", "โกง", "เลว", "เสีย", "ไม่ดี", "รอนาน", "ช้า", "ผิดหวัง"]
 FORBIDDEN_WORDS = ["ไอ้", "อีสัตว์", "มึง", "กู", "บ้า"]
 
+_CATEGORY_RULES = [
+    ("scam",               ["โกง", "หลอก", "ไม่ได้เงิน", "เงินหาย", "ฉ้อโกง", "โกงเงิน", "ไม่จ่าย", "หนีเงิน"]),
+    ("deposit_withdrawal", ["ฝาก", "ถอน", "โอนเงิน", "เติมเงิน", "ถอนเงิน", "ฝากเงิน", "withdraw", "deposit"]),
+    ("promotion",          ["โปร", "โบนัส", "bonus", "cashback", "แจก", "ฟรี", "rebate", "คืนยอด"]),
+    ("system",             ["ระบบ", "แอป", "เว็บล่ม", "error", "bug", "ล็อก", "login", "เข้าไม่ได้"]),
+    ("game",               ["poker", "สล็อต", "บาคาร่า", "ไพ่", "เกม", "slot", "บอล", "แทง"]),
+    ("brand",              ["n8", "natural8", "n8th", "naturals8", "socialeye"]),
+]
+
+
+def _classify_category(text: str) -> str:
+    lower = text.lower()
+    for category, kws in _CATEGORY_RULES:
+        if any(k in lower for k in kws):
+            return category
+    return "general"
+
 
 def _rule_based_sentiment(text: str) -> str:
     neg_count = sum(1 for w in NEGATIVE_KEYWORDS if w in text)
@@ -56,7 +73,7 @@ def _analyze_rule_based(text: str) -> dict:
         "sentiment": sentiment,
         "emotion": "anger" if sentiment == "negative" else "neutral",
         "intent": "complaint" if sentiment == "negative" else "general",
-        "topic": "general",
+        "topic": _classify_category(text),
         "risk_score": risk,
         "priority": priority,
         "suggested_action": "escalate_to_service_team" if priority in ("high", "critical") else "monitor",
@@ -76,7 +93,8 @@ async def _analyze_with_openai(text: str) -> dict:
                         "You are a Thai social media analyst. Analyze the given text and respond "
                         "in JSON with these fields: sentiment (positive/neutral/negative), "
                         "emotion (anger/joy/sadness/fear/neutral), intent (complaint/inquiry/praise/general), "
-                        "topic (string), risk_score (0-100 float), priority (low/medium/high/critical), "
+                        "topic (one of: brand/deposit_withdrawal/promotion/system/game/scam/general), "
+                        "risk_score (0-100 float), priority (low/medium/high/critical), "
                         "suggested_action (string), summary (Thai, max 50 chars)."
                     ),
                 },

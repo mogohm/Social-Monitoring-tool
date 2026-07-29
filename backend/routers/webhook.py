@@ -6,6 +6,7 @@ from backend.models.database import AsyncSessionLocal
 from backend.models.models import Mention, Keyword, AdminChat
 from sqlalchemy import select
 from datetime import datetime
+import asyncio
 
 router = APIRouter(prefix="/api/webhook", tags=["webhook"])
 
@@ -94,7 +95,21 @@ async def generic_webhook(payload: MentionPayload):
         )
         db.add(mention)
         await db.commit()
+        await db.refresh(mention)
+
+    # Fire alerts asynchronously (don't block the webhook response)
+    matched_names = [t["word"] for t in tags]
+    asyncio.ensure_future(_fire_alerts(mention, matched_names))
+
     return {"status": "ok", "channel": payload.channel, "keywords_matched": len(tags)}
+
+
+async def _fire_alerts(mention: Mention, matched_names: list):
+    try:
+        from backend.routers.alerts import check_and_send_alerts
+        await check_and_send_alerts(mention, matched_names)
+    except Exception as exc:
+        print(f"[alerts] fire error: {exc}")
 
 
 @router.post("/line")

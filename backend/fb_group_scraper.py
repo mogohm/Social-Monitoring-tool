@@ -544,10 +544,17 @@ async def scrape_once(page, seen: set) -> int:
         all_items.extend(new)
         print(f"  รอบ {i+1}/{SCROLL_ROUNDS}: +{posts_cnt} โพสต์ +{comment_cnt} comment "
               f"(รวม {len(all_items)})")
-        await page.evaluate("window.scrollBy(0, window.innerHeight * 2.5)")
+        try:
+            await page.evaluate("window.scrollBy(0, window.innerHeight * 2.5)")
+        except Exception as scroll_err:
+            print(f"  ⚠️ scroll error (ข้าม): {scroll_err}")
+            break
         await asyncio.sleep(3.5)
 
-    await page.evaluate("window.scrollTo(0, 0)")
+    try:
+        await page.evaluate("window.scrollTo(0, 0)")
+    except Exception:
+        pass
     await asyncio.sleep(1)
 
     if not all_items:
@@ -640,9 +647,8 @@ async def run():
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox",
-                  "--start-maximized"],
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
         )
 
         ctx_args = {"viewport": {"width": 1280, "height": 900}}
@@ -736,7 +742,14 @@ async def run():
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    try:
-        asyncio.run(run())
-    except KeyboardInterrupt:
-        print("\n\n🛑 หยุดแล้ว")
+    while True:
+        try:
+            asyncio.run(run())
+            break  # run() returned normally (e.g. session expired) — stop
+        except KeyboardInterrupt:
+            print("\n\n🛑 หยุดแล้ว")
+            break
+        except Exception as e:
+            print(f"\n💥 Scraper crash: {e}")
+            print("🔄 รีสตาร์ท browser ใน 15 วินาที...")
+            time.sleep(15)

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = [str(_HERE / ".env"), ".env", "backend/.env"]
+        extra = "ignore"
 
 
 settings = Settings()

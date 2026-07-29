@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from backend.models.database import engine, Base, AsyncSessionLocal
-from backend.models.models import Keyword, MonitoredChannel
-from backend.routers import mentions, qc, webhook, keywords, channels
+from backend.models.models import Keyword, MonitoredChannel, ScraperConfig
+from backend.routers import mentions, qc, webhook, keywords, channels, admin
 from sqlalchemy import select
 
 DEFAULT_KEYWORDS = [
@@ -47,6 +47,12 @@ async def lifespan(app: FastAPI):
                     name=ch_name,
                     display_name=CHANNEL_DISPLAY.get(ch_name, ch_name),
                 ))
+        # Seed default ScraperConfig row
+        sc_exists = (await db.execute(
+            select(ScraperConfig).where(ScraperConfig.name == "default")
+        )).scalar_one_or_none()
+        if not sc_exists:
+            db.add(ScraperConfig(name="default", enabled=True, interval_minutes=60))
         await db.commit()
     yield
 
@@ -66,6 +72,7 @@ app.include_router(qc.router)
 app.include_router(webhook.router)
 app.include_router(keywords.router)
 app.include_router(channels.router)
+app.include_router(admin.router)
 
 
 @app.get("/")

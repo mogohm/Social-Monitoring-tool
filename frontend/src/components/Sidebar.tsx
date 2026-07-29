@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, MessageSquare, BarChart2, TrendingUp,
   Users, AlertTriangle, ShieldCheck, FileText, Settings,
-  Bell, Database, Search, Tag, Plug, PlusCircle, UserCheck, BookOpen,
+  Bell, Database, Search, Tag, Plug, PlusCircle, UserCheck, BookOpen, Shield,
 } from "lucide-react";
 
 const nav = [
@@ -25,6 +25,7 @@ const nav = [
   { href: "/query-builder", label: "Query Builder", icon: Search },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/manual", label: "คู่มือการใช้งาน", icon: BookOpen },
+  { href: "/admin", label: "Admin", icon: Shield },
 ];
 
 export default function Sidebar() {
@@ -41,17 +42,20 @@ export default function Sidebar() {
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {nav.map(({ href, label, icon: Icon }) => {
           const active = path === href;
+          const isAdmin = href === "/admin";
           return (
             <Link
               key={href}
               href={href}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 active
-                  ? "bg-blue-600 text-white"
+                  ? isAdmin
+                    ? "bg-amber-600 text-white"
+                    : "bg-blue-600 text-white"
                   : "text-gray-200 hover:bg-white/10 hover:text-white"
               }`}
             >
-              <Icon size={15} className={active ? "text-white" : "text-gray-400"} />
+              <Icon size={15} className={active ? "text-white" : isAdmin ? "text-amber-400" : "text-gray-400"} />
               {label}
             </Link>
           );

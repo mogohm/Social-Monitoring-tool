@@ -175,3 +175,16 @@ class AdminChat(Base):
     qc_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     qc_notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ScraperConfig(Base):
+    __tablename__ = "scraper_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_posts_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_duration_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

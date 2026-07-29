@@ -23,8 +23,13 @@ FB_GROUP_URL  = os.getenv("FB_GROUP_URL", "")
 WEBHOOK_URL   = os.getenv("SOCIALEYE_WEBHOOK_URL", "http://localhost:8000/api/webhook/mention")
 SCROLL_ROUNDS = int(os.getenv("SCROLL_ROUNDS", "8"))
 INTERVAL_MIN  = int(os.getenv("SCRAPE_INTERVAL_MIN", "60"))
+ADMIN_TOKEN   = os.getenv("ADMIN_TOKEN", "")
 SESSION_FILE  = Path(__file__).parent / ".fb_session.json"
 SEEN_FILE     = Path(__file__).parent / ".fb_seen.json"
+
+# Derive admin API base URL from WEBHOOK_URL
+# e.g. https://socialeye-api.vercel.app/api/webhook/mention → https://socialeye-api.vercel.app
+_ADMIN_BASE = WEBHOOK_URL.replace("/api/webhook/mention", "").rstrip("/")
 
 
 def load_seen() -> set:
@@ -574,6 +579,48 @@ async def scrape_once(page, seen: set) -> int:
 
 
 # ---------------------------------------------------------------------------
+async def report_cycle(duration_seconds: float, posts_sent: int):
+    """POST heartbeat to admin API after each scrape cycle. Never crashes the scraper."""
+    if not ADMIN_TOKEN:
+        return
+    url = f"{_ADMIN_BASE}/api/admin/scraper/heartbeat"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json={"last_posts_count": posts_sent, "last_duration_seconds": duration_seconds},
+                headers={"X-Admin-Token": ADMIN_TOKEN},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    print(f"  ⚠️  Heartbeat API {resp.status}")
+    except Exception as e:
+        print(f"  ⚠️  report_cycle error: {e}")
+
+
+async def fetch_interval() -> tuple[int, bool]:
+    """GET scraper config from admin API. Returns (interval_minutes, enabled).
+    Falls back to (INTERVAL_MIN, True) on any error."""
+    if not ADMIN_TOKEN:
+        return INTERVAL_MIN, True
+    url = f"{_ADMIN_BASE}/api/admin/scraper"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url,
+                headers={"X-Admin-Token": ADMIN_TOKEN},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return int(data.get("interval_minutes", INTERVAL_MIN)), bool(data.get("enabled", True))
+                print(f"  ⚠️  fetch_interval API {resp.status}")
+    except Exception as e:
+        print(f"  ⚠️  fetch_interval error: {e}")
+    return INTERVAL_MIN, True
+
+
+# ---------------------------------------------------------------------------
 async def run():
     if not FB_EMAIL or not FB_PASSWORD or not FB_GROUP_URL:
         print("❌ กรุณาตั้งค่า FB_EMAIL, FB_PASSWORD, FB_GROUP_URL ใน backend/.env")
@@ -666,11 +713,24 @@ async def run():
                     await page.goto(group_url, wait_until="domcontentloaded")
                     await asyncio.sleep(5)
 
-            await scrape_once(page, seen)
+            cycle_start = time.time()
+            posts_sent = await scrape_once(page, seen)
+            duration = time.time() - cycle_start
 
-            next_t = time.strftime("%H:%M:%S", time.localtime(time.time() + INTERVAL_MIN * 60))
-            print(f"\n⏰ รอบต่อไป: {next_t}  (ทุก {INTERVAL_MIN} นาที) — กด Ctrl+C เพื่อหยุด")
-            await asyncio.sleep(INTERVAL_MIN * 60)
+            await report_cycle(duration, posts_sent)
+
+            # Wait phase — honour admin pause/interval settings.
+            # If paused, check again every 60s until re-enabled.
+            while True:
+                interval_min, enabled = await fetch_interval()
+                if enabled:
+                    next_t = time.strftime("%H:%M:%S", time.localtime(time.time() + interval_min * 60))
+                    print(f"\n⏰ รอบต่อไป: {next_t}  (ทุก {interval_min} นาที) — กด Ctrl+C เพื่อหยุด")
+                    await asyncio.sleep(interval_min * 60)
+                    break
+                else:
+                    print("⏸ Scraper paused by admin — ตรวจสอบอีก 60 วินาที")
+                    await asyncio.sleep(60)
 
 
 if __name__ == "__main__":

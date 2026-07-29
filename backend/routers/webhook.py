@@ -43,6 +43,22 @@ async def generic_webhook(payload: MentionPayload):
     async with AsyncSessionLocal() as db:
         analysis = await analyze_text(payload.content)
         tags = await _match_keywords(payload.content, db)
+
+        # Boost risk/sentiment when user-marked negative keywords are matched
+        neg_hits = [t for t in tags if t.get("is_negative")]
+        if neg_hits:
+            analysis["sentiment"] = "negative"
+            analysis["emotion"] = "anger"
+            analysis["intent"] = "complaint"
+            boost = min(len(neg_hits) * 35, 70)
+            analysis["risk_score"] = min((analysis.get("risk_score") or 0) + boost, 100)
+            score = analysis["risk_score"]
+            if score >= 80:
+                analysis["priority"] = "critical"
+            elif score >= 60:
+                analysis["priority"] = "high"
+            elif score >= 40:
+                analysis["priority"] = "medium"
         # parse published_at
         pub_at = datetime.utcnow()
         if payload.published_at:

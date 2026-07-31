@@ -589,8 +589,10 @@ async def scrape_once(page, seen: set) -> int:
 async def report_cycle(duration_seconds: float, posts_sent: int):
     """POST heartbeat to admin API after each scrape cycle. Never crashes the scraper."""
     if not ADMIN_TOKEN:
+        print("  ⏩ Heartbeat ข้าม — ADMIN_TOKEN ไม่ได้ตั้งค่าใน .env")
         return
     url = f"{_ADMIN_BASE}/api/admin/scraper/heartbeat"
+    print(f"  💓 ส่ง Heartbeat → {url}")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -600,7 +602,10 @@ async def report_cycle(duration_seconds: float, posts_sent: int):
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:
-                    print(f"  ⚠️  Heartbeat API {resp.status}")
+                    body = await resp.text()
+                    print(f"  ⚠️  Heartbeat API {resp.status}: {body[:120]}")
+                else:
+                    print(f"  ✅ Heartbeat OK")
     except Exception as e:
         print(f"  ⚠️  report_cycle error: {e}")
 

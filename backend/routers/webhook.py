@@ -7,8 +7,40 @@ from backend.models.models import Mention, Keyword, AdminChat
 from sqlalchemy import select
 from datetime import datetime
 import asyncio
+import re
+import unicodedata
 
 router = APIRouter(prefix="/api/webhook", tags=["webhook"])
+
+# Remove Facebook-injected obfuscation tokens from scraped content.
+_LONG_TOKEN = re.compile(r'[A-Za-z0-9]{12,}')  # 12+ consecutive alphanumeric runs
+
+def _clean_content(text: str) -> str:
+    """Strip Facebook tracking/obfuscation tokens from post content."""
+    text = unicodedata.normalize("NFC", text)
+
+    def _strip_token(m: re.Match) -> str:
+        s = m.group(0)
+        # Keep pure alphabetic strings (could be a real name/word of any length)
+        if s.isalpha():
+            return s
+        # Keep pure numeric strings (post counts, timestamps, etc.)
+        if s.isdigit():
+            return s
+        # Mixed alpha+digit — only strip if it looks like a generated token:
+        # requires 15+ chars AND at least 2 embedded digits
+        digit_count = sum(1 for c in s if c.isdigit())
+        if len(s) >= 15 and digit_count >= 2:
+            return ""
+        # Very long tokens regardless of composition → strip
+        if len(s) >= 25:
+            return ""
+        # Short mixed (e.g. N8Thailand = 10 chars) → keep
+        return s
+
+    text = _LONG_TOKEN.sub(_strip_token, text)
+    text = re.sub(r'[ \t]{2,}', ' ', text).strip()
+    return text
 
 
 class MentionPayload(BaseModel):
@@ -40,6 +72,12 @@ async def _match_keywords(content: str, db) -> list[dict]:
 @router.post("/mention")
 async def generic_webhook(payload: MentionPayload):
     """Universal endpoint — receives data from any external collector (Python scripts, n8n, Make.com)."""
+    # Clean obfuscation tokens before analysis and storage
+    clean = _clean_content(payload.content)
+    if not clean or len(clean) < 5:
+        clean = payload.content  # fallback to original if over-stripped
+    payload = payload.model_copy(update={"content": clean})
+
     async with AsyncSessionLocal() as db:
         analysis = await analyze_text(payload.content)
         tags = await _match_keywords(payload.content, db)

@@ -78,17 +78,23 @@ export default function DateRangePicker({ value, onChange, onRefresh, presets = 
               </button>
             );
           })}
+        </div>
 
-          <div className="relative" ref={boxRef}>
-            <button
-              onClick={() => setOpen((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border-l-2 border-gray-200 transition-colors ${
-                custom ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              <CalendarDays size={13} />
-              กำหนดเอง
-            </button>
+        {/* Outside the preset group on purpose: that container needs
+            overflow-hidden for its rounded ends, which would clip this
+            absolutely-positioned popover and make it unclickable. */}
+        <div className="relative" ref={boxRef}>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 text-xs font-bold transition-colors ${
+              custom
+                ? "bg-blue-600 text-white border-blue-600"
+                : "text-gray-600 border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            <CalendarDays size={13} />
+            กำหนดเอง
+          </button>
 
             {open && (
               <div className="absolute right-0 top-full mt-2 z-50 w-72 rounded-xl border-2 border-gray-200 bg-white p-4 shadow-xl">
@@ -153,7 +159,6 @@ export default function DateRangePicker({ value, onChange, onRefresh, presets = 
                 </div>
               </div>
             )}
-          </div>
         </div>
 
         {onRefresh && (

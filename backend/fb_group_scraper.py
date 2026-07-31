@@ -21,7 +21,9 @@ FB_EMAIL      = os.getenv("FB_EMAIL", "")
 FB_PASSWORD   = os.getenv("FB_PASSWORD", "")
 FB_GROUP_URL  = os.getenv("FB_GROUP_URL", "")
 WEBHOOK_URL   = os.getenv("SOCIALEYE_WEBHOOK_URL", "http://localhost:8000/api/webhook/mention")
-SCROLL_ROUNDS = int(os.getenv("SCROLL_ROUNDS", "8"))
+SCROLL_ROUNDS = int(os.getenv("SCROLL_ROUNDS", "5"))
+# Seconds to wait after scrolling an element into view, for lazy images.
+ELEMENT_SETTLE_SEC = float(os.getenv("ELEMENT_SETTLE_SEC", "1.2"))
 INTERVAL_MIN  = int(os.getenv("SCRAPE_INTERVAL_MIN", "60"))
 ADMIN_TOKEN   = os.getenv("ADMIN_TOKEN", "")
 SESSION_FILE  = Path(__file__).parent / ".fb_session.json"
@@ -408,7 +410,11 @@ async def _process_element(el, is_comment: bool, seen: set) -> dict | None:
     """สกัดข้อมูลจาก element เดียว (post card หรือ comment article)"""
     try:
         await el.scroll_into_view_if_needed()
-        await asyncio.sleep(3.0)  # Allow time for lazy-loaded images to load (naturalWidth needs time)
+        # Lazy-loaded images need a moment for naturalWidth to be set. This was
+        # 3.0s, which pushed a cycle to ~7.4 min — longer than the ~5 min the
+        # browser connection tends to survive, so no cycle ever finished.
+        # Images that are still unloaded pass the naturalWidth filter anyway.
+        await asyncio.sleep(ELEMENT_SETTLE_SEC)
     except Exception:
         pass
 
@@ -689,7 +695,22 @@ async def run():
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                # Stability flags — the driver↔Chromium connection drops
+                # intermittently on long Facebook sessions; these remove the
+                # subsystems most often implicated and cut renderer overhead.
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-extensions",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-features=TranslateUI,site-per-process",
+                "--mute-audio",
+                "--no-first-run",
+            ],
         )
 
         ctx_args = {"viewport": {"width": 1280, "height": 900}}

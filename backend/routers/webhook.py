@@ -11,35 +11,71 @@ import unicodedata
 
 router = APIRouter(prefix="/api/webhook", tags=["webhook"])
 
-# Remove Facebook-injected obfuscation tokens from scraped content.
-_LONG_TOKEN = re.compile(r'[A-Za-z0-9]{12,}')  # 12+ consecutive alphanumeric runs
+# Facebook hides its injected tokens by inserting an invisible character between
+# every letter (U+034F COMBINING GRAPHEME JOINER, ~300 per handful of posts), so
+# a token that looks like "pndeots" is really p·n·d·e·o·t·s and no contiguous
+# [A-Za-z0-9]{12,} run ever matches. Strip these first, then filter.
+#
+# Only zero-width joiners/spaces are listed — NOT every combining mark, because
+# Thai vowels and tone marks (U+0E31, U+0E34-0E3A, U+0E47-0E4E) are combining
+# marks too and removing them would destroy the Thai text.
+_INVISIBLE = re.compile(
+    "["
+    "͏"            # COMBINING GRAPHEME JOINER  ← what Facebook uses
+    "​-‏"     # zero-width space/joiners, LTR/RTL marks
+    "‪-‮"     # bidi embedding/override
+    "⁠-⁤"     # word joiner, invisible operators
+    "﻿"            # zero-width no-break space (BOM)
+    "­"            # soft hyphen
+    "]"
+)
+
+# A run of characters each followed by CGJ is, by construction, one of
+# Facebook's injected tokens — real user text never contains CGJ. Matching the
+# whole run (not just the CGJ) removes the token outright.
+_CGJ_RUN = re.compile(r'(?:[^\n]͏)+[^\n]?')
+
+# Facebook only CGJ-separates part of a token; the tail arrives contiguous
+# (e.g. "fm8a135h6rte95"), so a second pass catches those.
+_ALNUM_RUN = re.compile(r'[A-Za-z0-9]{8,}')
+
+# The scraper sometimes emits a token one character per line. Trailing spaces
+# break the run, so lines are rstripped before this is applied, and it is
+# applied repeatedly because removing one run can join two others.
+_CHAR_LINES = re.compile(r'(?:^.{1,2}$\n?){3,}', re.MULTILINE)
+
+
+def _looks_like_token(s: str) -> bool:
+    """True for random alphanumeric noise, false for real words and numbers."""
+    if s.isalpha() or s.isdigit():
+        return False                       # "announcement", "12345" — keep
+    digits = sum(1 for c in s if c.isdigit())
+    # Heavily digit-interleaved mixed strings are generated tokens.
+    # "N8Thailand" (1/10) and "natural8" (1/8) stay; "fm8a135h6rte95" (7/14) goes.
+    return digits / len(s) >= 0.3
+
 
 def _clean_content(text: str) -> str:
     """Strip Facebook tracking/obfuscation tokens from post content."""
     text = unicodedata.normalize("NFC", text)
+    text = _CGJ_RUN.sub("", text)                  # CGJ-obfuscated tokens
+    text = _INVISIBLE.sub("", text)                # any stray invisibles left
+    text = text.replace("\xa0", " ")               # nbsp → normal space
+    text = _ALNUM_RUN.sub(lambda m: "" if _looks_like_token(m.group(0)) else m.group(0), text)
 
-    def _strip_token(m: re.Match) -> str:
-        s = m.group(0)
-        # Keep pure alphabetic strings (could be a real name/word of any length)
-        if s.isalpha():
-            return s
-        # Keep pure numeric strings (post counts, timestamps, etc.)
-        if s.isdigit():
-            return s
-        # Mixed alpha+digit — only strip if it looks like a generated token:
-        # requires 15+ chars AND at least 2 embedded digits
-        digit_count = sum(1 for c in s if c.isdigit())
-        if len(s) >= 15 and digit_count >= 2:
-            return ""
-        # Very long tokens regardless of composition → strip
-        if len(s) >= 25:
-            return ""
-        # Short mixed (e.g. N8Thailand = 10 chars) → keep
-        return s
+    # Normalise whitespace before the line-shaped pass so trailing spaces
+    # don't break up a run of single-character lines.
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    text = "\n".join(ln.strip() for ln in text.split("\n"))
 
-    text = _LONG_TOKEN.sub(_strip_token, text)
-    text = re.sub(r'[ \t]{2,}', ' ', text).strip()
-    return text
+    for _ in range(5):                             # removing one run can join two
+        stripped = _CHAR_LINES.sub("", text)
+        if stripped == text:
+            break
+        text = stripped
+
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 
 class MentionPayload(BaseModel):

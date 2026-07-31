@@ -31,3 +31,10 @@ Thumbs.db
 # Facebook scraper state (credentials / session tokens)
 backend/.fb_session.json
 backend/.fb_seen.json
+
+# Scraper runtime output — regenerated every run, pure noise in diffs
+backend/scraper_run.log
+backend/scraper_err.log
+backend/debug_engagement.json
+backend/debug_engagement_out.txt
+backend/debug_engagement_err.txt

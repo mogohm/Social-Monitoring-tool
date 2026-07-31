@@ -5,8 +5,7 @@ import {
   Mail, AlertTriangle, Tag, Layers, Globe,
   ChevronDown, ChevronUp,
 } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { api } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -72,8 +71,10 @@ export default function AlertsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/alerts`);
-      if (r.ok) setAlerts(await r.json());
+      const { data } = await api.get("/api/alerts");
+      setAlerts(data);
+    } catch {
+      // ignore
     } finally {
       setLoading(false);
     }
@@ -87,16 +88,12 @@ export default function AlertsPage() {
 
   async function handleDelete(id: number) {
     if (!confirm("ลบ alert นี้?")) return;
-    await fetch(`${API_URL}/api/alerts/${id}`, { method: "DELETE" });
+    await api.delete(`/api/alerts/${id}`);
     load();
   }
 
   async function toggleActive(a: AlertConfig) {
-    await fetch(`${API_URL}/api/alerts/${a.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...a, is_active: !a.is_active }),
-    });
+    await api.patch(`/api/alerts/${a.id}`, { ...a, is_active: !a.is_active });
     load();
   }
 
@@ -263,9 +260,8 @@ function AlertForm({ initial, onClose, onSaved }: {
   const [kwOptions, setKwOptions]   = useState<KeywordOption[]>([]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/keywords`)
-      .then((r) => r.json())
-      .then((data) => setKwOptions(Array.isArray(data) ? data : data.keywords ?? []))
+    api.get("/api/keywords")
+      .then(({ data }) => setKwOptions(Array.isArray(data) ? data : data.keywords ?? []))
       .catch(() => {});
   }, []);
 
@@ -301,17 +297,15 @@ function AlertForm({ initial, onClose, onSaved }: {
     if (!form.email_recipients.length) { setError("กรุณาใส่อีเมลอย่างน้อย 1 ที่อยู่"); return; }
     setSaving(true); setError("");
     try {
-      const url    = form.id ? `${API_URL}/api/alerts/${form.id}` : `${API_URL}/api/alerts`;
-      const method = form.id ? "PATCH" : "POST";
-      const r = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!r.ok) throw new Error(await r.text());
+      if (form.id) {
+        await api.patch(`/api/alerts/${form.id}`, form);
+      } else {
+        await api.post("/api/alerts", form);
+      }
       onSaved(); onClose();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "เกิดข้อผิดพลาด");
+      const msg = (e as {response?: {data?: {detail?: string}}})?.response?.data?.detail;
+      setError(msg || (e instanceof Error ? e.message : "เกิดข้อผิดพลาด"));
     } finally {
       setSaving(false);
     }

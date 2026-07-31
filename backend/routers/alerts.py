@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+import os
 from backend.models.database import AsyncSessionLocal
 from backend.models.models import Alert, AlertLog, Mention
 from backend.services.email_service import send_alert_email
@@ -54,6 +55,61 @@ def _serialize_log(row: AlertLog) -> dict:
         "matched_keywords": row.matched_keywords or [],
         "mention_url": row.mention_url,
     }
+
+
+# ─── Diagnostics ────────────────────────────────────────────────────────────
+
+@router.get("/smtp-status")
+async def smtp_status():
+    """Report whether SMTP env vars are configured (never exposes the password)."""
+    host = os.getenv("SMTP_HOST", "")
+    port = os.getenv("SMTP_PORT", "")
+    user = os.getenv("SMTP_USER", "")
+    has_pass = bool(os.getenv("SMTP_PASS", ""))
+    configured = bool(user and has_pass)
+    return {
+        "configured": configured,
+        "smtp_host": host or "(not set — defaults to smtp.gmail.com)",
+        "smtp_port": port or "(not set — defaults to 587)",
+        "smtp_user": user or "(not set)",
+        "smtp_pass_set": has_pass,
+        "message": (
+            "SMTP พร้อมใช้งาน — alert จะส่ง email ได้"
+            if configured
+            else "ยังไม่ได้ตั้งค่า SMTP_USER / SMTP_PASS ใน Vercel — alert จะไม่ส่ง email"
+        ),
+    }
+
+
+class TestEmailBody(BaseModel):
+    recipients: list[str]
+
+
+@router.post("/test-email")
+async def test_email(body: TestEmailBody):
+    """Send a test alert email to verify SMTP works end-to-end."""
+    if not os.getenv("SMTP_USER") or not os.getenv("SMTP_PASS"):
+        raise HTTPException(400, "SMTP_USER / SMTP_PASS ยังไม่ได้ตั้งค่าใน Vercel")
+    if not body.recipients:
+        raise HTTPException(400, "ต้องระบุ recipients อย่างน้อย 1 อีเมล")
+
+    class _FakeMention:
+        author = "SocialEye Test"
+        content = "นี่คือ email ทดสอบระบบแจ้งเตือน — ถ้าคุณได้รับอีเมลนี้ แสดงว่า SMTP ทำงานถูกต้องแล้ว"
+        url = "https://social-monitoring-tool.vercel.app/alerts"
+        image_url = None
+        topic = "general"
+        risk_score = 50
+        priority = "medium"
+        published_at = datetime.utcnow()
+
+    await send_alert_email(
+        mention=_FakeMention(),
+        alert_name="ทดสอบระบบแจ้งเตือน",
+        recipients=body.recipients,
+        matched_keywords=["ทดสอบ"],
+    )
+    return {"status": "sent", "recipients": body.recipients}
 
 
 # ─── CRUD ───────────────────────────────────────────────────────────────────

@@ -77,11 +77,23 @@ const COND_ICON_COLOR: Record<string, string> = {
 
 // ─── Main page ────────────────────────────────────────────────────────────
 
+interface SmtpStatus {
+  configured: boolean;
+  smtp_host: string;
+  smtp_port: string;
+  smtp_user: string;
+  smtp_pass_set: boolean;
+  message: string;
+}
+
 export default function AlertsPage() {
   const [alerts, setAlerts]     = useState<AlertConfig[]>([]);
   const [loading, setLoading]   = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing]   = useState<AlertConfig | null>(null);
+  const [smtp, setSmtp]         = useState<SmtpStatus | null>(null);
+  const [testing, setTesting]   = useState(false);
+  const [testMsg, setTestMsg]   = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,7 +107,31 @@ export default function AlertsPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadSmtp = useCallback(async () => {
+    try {
+      const { data } = await api.get("/api/alerts/smtp-status");
+      setSmtp(data);
+    } catch {
+      setSmtp(null);
+    }
+  }, []);
+
+  async function sendTestEmail() {
+    const to = alerts[0]?.email_recipients ?? [];
+    if (!to.length) { setTestMsg("ยังไม่มี alert ที่มีอีเมลผู้รับ"); return; }
+    setTesting(true); setTestMsg("");
+    try {
+      await api.post("/api/alerts/test-email", { recipients: to });
+      setTestMsg(`ส่งอีเมลทดสอบไปที่ ${to.join(", ")} แล้ว — เช็ค inbox`);
+    } catch (e: unknown) {
+      const msg = (e as {response?: {data?: {detail?: string}}})?.response?.data?.detail;
+      setTestMsg(msg || "ส่งไม่สำเร็จ");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  useEffect(() => { load(); loadSmtp(); }, [load, loadSmtp]);
 
   function openNew()  { setEditing({ ...EMPTY }); setShowForm(true); }
   function openEdit(a: AlertConfig) { setEditing({ ...a }); setShowForm(true); }
@@ -131,21 +167,56 @@ export default function AlertsPage() {
         </button>
       </div>
 
-      {/* SMTP hint */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-        <Mail size={16} className="text-amber-600 mt-0.5 shrink-0" />
-        <div>
-          <p className="text-sm font-bold text-amber-900">ต้องตั้งค่า SMTP ก่อนใช้งาน</p>
-          <p className="text-xs font-medium text-amber-700 mt-0.5">
-            เพิ่ม env vars ใน Vercel backend:{" "}
-            <code className="bg-amber-100 px-1 rounded">SMTP_HOST</code>{" "}
-            <code className="bg-amber-100 px-1 rounded">SMTP_PORT</code>{" "}
-            <code className="bg-amber-100 px-1 rounded">SMTP_USER</code>{" "}
-            <code className="bg-amber-100 px-1 rounded">SMTP_PASS</code>
-            {" "}— ใช้ Gmail + App Password ได้เลย
-          </p>
+      {/* SMTP status — live check against backend env vars */}
+      {smtp === null ? (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs font-medium text-gray-500">
+          กำลังตรวจสอบสถานะ SMTP…
         </div>
-      </div>
+      ) : smtp.configured ? (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3 items-start">
+          <Check size={16} className="text-green-600 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-bold text-green-900">SMTP พร้อมใช้งาน — ระบบส่ง email ได้แล้ว</p>
+            <p className="text-xs font-medium text-green-700 mt-0.5">
+              ส่งจาก <code className="bg-green-100 px-1 rounded">{smtp.smtp_user}</code>
+              {" · "}{smtp.smtp_host}:{smtp.smtp_port}
+            </p>
+            {testMsg && (
+              <p className="text-xs font-bold text-green-800 mt-1.5">{testMsg}</p>
+            )}
+          </div>
+          <button onClick={sendTestEmail} disabled={testing}
+            className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700
+                       text-white transition-colors disabled:opacity-50">
+            {testing ? "กำลังส่ง…" : "ส่งอีเมลทดสอบ"}
+          </button>
+        </div>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+          <Mail size={16} className="text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-bold text-amber-900">
+              ยังส่ง email ไม่ได้ — ต้องตั้งค่า SMTP ใน Vercel ก่อน
+            </p>
+            <p className="text-xs font-medium text-amber-700 mt-1">
+              ไปที่ Vercel → โปรเจกต์ backend → Settings → Environment Variables แล้วเพิ่ม 4 ตัวนี้:
+            </p>
+            <div className="mt-2 space-y-0.5 text-xs font-mono text-amber-800">
+              <div><span className="bg-amber-100 px-1.5 py-0.5 rounded">SMTP_HOST</span> = smtp.gmail.com</div>
+              <div><span className="bg-amber-100 px-1.5 py-0.5 rounded">SMTP_PORT</span> = 587</div>
+              <div><span className="bg-amber-100 px-1.5 py-0.5 rounded">SMTP_USER</span> = อีเมล Gmail ของคุณ</div>
+              <div><span className="bg-amber-100 px-1.5 py-0.5 rounded">SMTP_PASS</span> = App Password 16 หลัก</div>
+            </div>
+            <p className="text-xs font-semibold text-amber-800 mt-2">
+              สถานะตอนนี้: SMTP_USER {smtp.smtp_user === "(not set)" ? "❌ ยังไม่ได้ตั้ง" : "✅ ตั้งแล้ว"}
+              {" · "}SMTP_PASS {smtp.smtp_pass_set ? "✅ ตั้งแล้ว" : "❌ ยังไม่ได้ตั้ง"}
+            </p>
+            <p className="text-xs font-medium text-amber-600 mt-1">
+              หลังเพิ่มแล้วต้องกด Redeploy ที่ Vercel ด้วย ค่าถึงจะมีผล
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Alert list */}
       {loading ? (

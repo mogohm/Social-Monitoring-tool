@@ -78,11 +78,17 @@ export function rangeLabel(range: DateRange): string {
   return `${range.days ?? 7} วันล่าสุด`;
 }
 
-/** Start/end actually covered, so pages can show the exact span. */
+/**
+ * Start/end actually covered, so pages can show the exact span.
+ *
+ * Presets mirror the backend, which filters a rolling `days * 24h` window
+ * (`created_at >= now - days`). That touches N+1 calendar dates, so the start
+ * is `daysAgoISO(n)` — using n-1 here made the label disagree with the data,
+ * e.g. a 14-day chart legitimately drawing 15 daily buckets.
+ */
 export function resolvedSpan(range: DateRange): { from: string; to: string } {
   if (isCustom(range)) {
-    return { from: range.from ?? daysAgoISO((range.days ?? 7) - 1), to: range.to ?? todayISO() };
+    return { from: range.from ?? daysAgoISO(range.days ?? 7), to: range.to ?? todayISO() };
   }
-  const n = range.days ?? 7;
-  return { from: daysAgoISO(n - 1), to: todayISO() };
+  return { from: daysAgoISO(range.days ?? 7), to: todayISO() };
 }

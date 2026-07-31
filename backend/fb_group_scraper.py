@@ -32,6 +32,29 @@ SEEN_FILE     = Path(__file__).parent / ".fb_seen.json"
 _ADMIN_BASE = WEBHOOK_URL.replace("/api/webhook/mention", "").rstrip("/")
 
 
+class BrowserDead(Exception):
+    """Raised when the Playwright/Chromium connection is gone.
+
+    Propagates out of run() so the __main__ loop tears everything down and
+    launches a fresh browser — otherwise the scraper keeps cycling forever
+    against a dead driver, collecting nothing.
+    """
+
+
+_DEAD_MARKERS = (
+    "connection closed",
+    "target closed",
+    "target page, context or browser has been closed",
+    "browser has been closed",
+    "browser closed",
+)
+
+
+def _is_browser_dead(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(m in msg for m in _DEAD_MARKERS)
+
+
 def load_seen() -> set:
     if SEEN_FILE.exists():
         try:
@@ -404,6 +427,8 @@ async def _process_element(el, is_comment: bool, seen: set) -> dict | None:
     try:
         data = await el.evaluate(JS_EXTRACT)
     except Exception as e:
+        if _is_browser_dead(e):
+            raise BrowserDead(str(e))
         print(f"  ⚠️ JS eval: {e}")
         return None
 
@@ -491,7 +516,11 @@ async def extract_articles(page, seen: set) -> list[dict]:
             if item:
                 found.append(item)
 
+    except BrowserDead:
+        raise
     except Exception as e:
+        if _is_browser_dead(e):
+            raise BrowserDead(str(e))
         print(f"  ⚠️  Extract error: {e}")
 
     return found
@@ -533,7 +562,12 @@ async def scrape_once(page, seen: set) -> int:
     # Pre-scroll: ข้ามส่วน header / featured / admin panel ให้โพสต์โหลด
     print("  ⬇️  scroll ผ่าน header เพื่อโหลดโพสต์...")
     for _ in range(4):
-        await page.evaluate("window.scrollBy(0, window.innerHeight * 1.5)")
+        try:
+            await page.evaluate("window.scrollBy(0, window.innerHeight * 1.5)")
+        except Exception as e:
+            if _is_browser_dead(e):
+                raise BrowserDead(str(e))
+            raise
         await asyncio.sleep(2.5)
 
     # Main loop: extract แล้วค่อย scroll ต่อ
@@ -547,6 +581,8 @@ async def scrape_once(page, seen: set) -> int:
         try:
             await page.evaluate("window.scrollBy(0, window.innerHeight * 2.5)")
         except Exception as scroll_err:
+            if _is_browser_dead(scroll_err):
+                raise BrowserDead(str(scroll_err))
             print(f"  ⚠️ scroll error (ข้าม): {scroll_err}")
             break
         await asyncio.sleep(3.5)
@@ -714,7 +750,12 @@ async def run():
             print(f"🔄 รอบที่ {round_no} — {time.strftime('%Y-%m-%d %H:%M:%S')}")
             print(f"{'='*60}")
 
-            await page.goto(group_url, wait_until="domcontentloaded")
+            try:
+                await page.goto(group_url, wait_until="domcontentloaded")
+            except Exception as e:
+                if _is_browser_dead(e):
+                    raise BrowserDead(str(e))
+                raise
             await asyncio.sleep(5)
 
             if not await is_logged_in(page):
@@ -754,6 +795,10 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("\n\n🛑 หยุดแล้ว")
             break
+        except BrowserDead as e:
+            print(f"\n💀 Browser ตาย: {e}")
+            print("🔄 เปิด browser ใหม่ใน 15 วินาที...")
+            time.sleep(15)
         except Exception as e:
             print(f"\n💥 Scraper crash: {e}")
             print("🔄 รีสตาร์ท browser ใน 15 วินาที...")

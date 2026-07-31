@@ -102,3 +102,20 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.get("/deploy-info")
+async def deploy_info():
+    """Report which Vercel environment served this request.
+
+    VERCEL_ENV is set by Vercel itself to 'production' or 'preview', so this
+    answers "did this push deploy to production?" directly instead of by
+    inference. Requires 'System Environment Variables' enabled on the project.
+    """
+    import os as _os
+    return {
+        "vercel_env":  _os.getenv("VERCEL_ENV", "(unset — not on Vercel?)"),
+        "git_branch":  _os.getenv("VERCEL_GIT_COMMIT_REF", "(unset)"),
+        "commit_sha":  (_os.getenv("VERCEL_GIT_COMMIT_SHA", "") or "(unset)")[:7],
+        "commit_msg":  _os.getenv("VERCEL_GIT_COMMIT_MESSAGE", "(unset)")[:80],
+    }

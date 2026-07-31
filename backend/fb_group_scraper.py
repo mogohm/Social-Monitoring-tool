@@ -21,7 +21,10 @@ FB_EMAIL      = os.getenv("FB_EMAIL", "")
 FB_PASSWORD   = os.getenv("FB_PASSWORD", "")
 FB_GROUP_URL  = os.getenv("FB_GROUP_URL", "")
 WEBHOOK_URL   = os.getenv("SOCIALEYE_WEBHOOK_URL", "http://localhost:8000/api/webhook/mention")
-SCROLL_ROUNDS = int(os.getenv("SCROLL_ROUNDS", "5"))
+# Kept at 8: observed cycles surface new posts as late as scroll round 7, so
+# trimming rounds loses posts. The cycle is kept short via ELEMENT_SETTLE_SEC
+# instead, which costs coverage nothing.
+SCROLL_ROUNDS = int(os.getenv("SCROLL_ROUNDS", "8"))
 # Seconds to wait after scrolling an element into view, for lazy images.
 ELEMENT_SETTLE_SEC = float(os.getenv("ELEMENT_SETTLE_SEC", "1.2"))
 INTERVAL_MIN  = int(os.getenv("SCRAPE_INTERVAL_MIN", "60"))

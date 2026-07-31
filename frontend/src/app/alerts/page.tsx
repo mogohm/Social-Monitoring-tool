@@ -249,16 +249,25 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 // ─── Alert Form modal ─────────────────────────────────────────────────────
 
+interface KeywordOption { id: number; word: string; category: string; is_negative: boolean; }
+
 function AlertForm({ initial, onClose, onSaved }: {
   initial: AlertConfig;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm]         = useState<AlertConfig>(initial);
+  const [form, setForm]             = useState<AlertConfig>(initial);
   const [emailInput, setEmailInput] = useState("");
-  const [kwInput, setKwInput]   = useState("");
-  const [saving, setSaving]     = useState(false);
-  const [error, setError]       = useState("");
+  const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState("");
+  const [kwOptions, setKwOptions]   = useState<KeywordOption[]>([]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/keywords`)
+      .then((r) => r.json())
+      .then((data) => setKwOptions(Array.isArray(data) ? data : data.keywords ?? []))
+      .catch(() => {});
+  }, []);
 
   function set<K extends keyof AlertConfig>(k: K, v: AlertConfig[K]) {
     setForm((prev) => ({ ...prev, [k]: v }));
@@ -272,11 +281,9 @@ function AlertForm({ initial, onClose, onSaved }: {
     setEmailInput("");
   }
 
-  function addKw() {
-    const v = kwInput.trim();
-    if (!v || form.keywords.includes(v)) return;
-    set("keywords", [...form.keywords, v]);
-    setKwInput("");
+  function toggleKw(word: string) {
+    const arr = form.keywords;
+    set("keywords", arr.includes(word) ? arr.filter((x) => x !== word) : [...arr, word]);
   }
 
   function toggleCat(v: string) {
@@ -378,30 +385,39 @@ function AlertForm({ initial, onClose, onSaved }: {
           {/* keyword_match keywords */}
           {form.condition_type === "keyword_match" && (
             <Field label="Keywords ที่ติดตาม (ว่าง = ทุก keyword)">
-              <div className="flex gap-2 mb-2">
-                <input
-                  value={kwInput}
-                  onChange={(e) => setKwInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addKw())}
-                  placeholder="keyword แล้ว Enter"
-                  className="flex-1 border-2 border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold
-                             focus:outline-none focus:border-blue-400"
-                />
-                <button onClick={addKw} className="px-3 bg-gray-100 hover:bg-gray-200 rounded-xl text-sm font-bold transition-colors">
-                  เพิ่ม
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {form.keywords.map((k) => (
-                  <span key={k} className="flex items-center gap-1 bg-orange-50 text-orange-700
-                                           border border-orange-200 px-2.5 py-1 rounded-lg text-xs font-bold">
-                    {k}
-                    <button onClick={() => set("keywords", form.keywords.filter((x) => x !== k))}>
-                      <X size={10} />
-                    </button>
-                  </span>
-                ))}
-              </div>
+              {kwOptions.length === 0 ? (
+                <p className="text-xs text-gray-400 italic">โหลด keywords…</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {kwOptions.map((kw) => {
+                    const sel = form.keywords.includes(kw.word);
+                    return (
+                      <button
+                        key={kw.id}
+                        onClick={() => toggleKw(kw.word)}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border-2 transition-colors ${
+                          sel
+                            ? kw.is_negative
+                              ? "bg-red-50 text-red-700 border-red-400"
+                              : "bg-orange-50 text-orange-700 border-orange-400"
+                            : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        {sel && <Check size={9} />}
+                        {kw.word}
+                        {kw.is_negative && (
+                          <span className="ml-1 text-red-400 font-black">⚠</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {form.keywords.length > 0 && (
+                <p className="text-xs text-gray-400 mt-2">
+                  เลือก {form.keywords.length} keyword — ว่างทั้งหมด = แจ้งเตือนทุก keyword
+                </p>
+              )}
             </Field>
           )}
 

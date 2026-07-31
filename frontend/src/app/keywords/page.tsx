@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
-import { Tag, Plus, Trash2, RefreshCw, BarChart2, AlertCircle } from "lucide-react";
+import { Tag, Plus, Trash2, RefreshCw, BarChart2, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 
 interface Keyword {
   id: number;
   word: string;
   category: string | null;
   is_negative: boolean;
+  is_competitor: boolean;
   is_active: boolean;
   match_count: number;
   mention_count?: number;
@@ -16,6 +17,15 @@ interface Keyword {
 
 const CATEGORIES = ["brand", "product", "competitor", "crisis", "campaign", "general"];
 
+type SortKey = "word" | "category" | "type" | "matches";
+
+/** Type is derived from the two flags, so it needs its own order for sorting. */
+function typeRank(k: Keyword): number {
+  if (k.is_negative) return 0;
+  if (k.is_competitor) return 1;
+  return 2;
+}
+
 export default function KeywordsPage() {
   const [keywords, setKeywords]   = useState<Keyword[]>([]);
   const [loading, setLoading]     = useState(false);
@@ -23,9 +33,17 @@ export default function KeywordsPage() {
   const [newWord, setNewWord]     = useState("");
   const [newCat, setNewCat]       = useState("brand");
   const [isNeg, setIsNeg]         = useState(false);
+  const [isComp, setIsComp]       = useState(false);
   const [adding, setAdding]       = useState(false);
   const [error, setError]         = useState("");
+  const [sortKey, setSortKey]     = useState<SortKey>("matches");
+  const [sortDir, setSortDir]     = useState<"asc" | "desc">("desc");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortKey(key); setSortDir(key === "matches" ? "desc" : "asc"); }
+  }
 
   const load = async () => {
     setLoading(true);
@@ -55,9 +73,10 @@ export default function KeywordsPage() {
     if (!word) return;
     setAdding(true);
     try {
-      await api.post("/api/keywords", { word, category: newCat, is_negative: isNeg });
+      await api.post("/api/keywords", { word, category: newCat, is_negative: isNeg, is_competitor: isComp });
       setNewWord("");
       setIsNeg(false);
+      setIsComp(false);
       await load();
       inputRef.current?.focus();
     } catch (e: unknown) {
@@ -91,6 +110,26 @@ export default function KeywordsPage() {
   const active   = keywords.filter((k) => k.is_active);
   const inactive = keywords.filter((k) => !k.is_active);
   const negative = keywords.filter((k) => k.is_negative && k.is_active);
+  const competitor = keywords.filter((k) => k.is_competitor && k.is_active);
+
+  // Inactive keywords stay grouped at the bottom whatever the sort, so
+  // switching order never buries the live ones among disabled rows.
+  const sortedRows = [
+    ...sortRows(active),
+    ...sortRows(inactive),
+  ];
+
+  function sortRows(rows: Keyword[]): Keyword[] {
+    const dir = sortDir === "desc" ? -1 : 1;
+    return [...rows].sort((a, b) => {
+      switch (sortKey) {
+        case "word":     return dir * a.word.localeCompare(b.word, "th");
+        case "category": return dir * (a.category ?? "general").localeCompare(b.category ?? "general");
+        case "type":     return dir * (typeRank(a) - typeRank(b));
+        default:         return dir * ((a.mention_count ?? a.match_count) - (b.mention_count ?? b.match_count));
+      }
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -103,7 +142,7 @@ export default function KeywordsPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Keyword Management</h1>
             <p className="text-sm font-medium text-gray-600">
-              {active.length} active · {negative.length} negative · {keywords.length} total
+              {active.length} active · {negative.length} negative · {competitor.length} competitor · {keywords.length} total
             </p>
           </div>
         </div>
@@ -118,7 +157,7 @@ export default function KeywordsPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white border-2 border-blue-200 rounded-xl p-4 text-center">
           <div className="text-3xl font-extrabold text-blue-700">{active.length}</div>
           <div className="text-xs font-bold text-gray-600 uppercase tracking-wide mt-1">Active Keywords</div>
@@ -126,6 +165,10 @@ export default function KeywordsPage() {
         <div className="bg-white border-2 border-red-200 rounded-xl p-4 text-center">
           <div className="text-3xl font-extrabold text-red-700">{negative.length}</div>
           <div className="text-xs font-bold text-gray-600 uppercase tracking-wide mt-1">Negative Keywords</div>
+        </div>
+        <div className="bg-white border-2 border-orange-200 rounded-xl p-4 text-center">
+          <div className="text-3xl font-extrabold text-orange-700">{competitor.length}</div>
+          <div className="text-xs font-bold text-gray-600 uppercase tracking-wide mt-1">Competitor Keywords</div>
         </div>
         <div className="bg-white border-2 border-green-200 rounded-xl p-4 text-center">
           <div className="text-3xl font-extrabold text-green-700">
@@ -159,6 +202,10 @@ export default function KeywordsPage() {
           <label className="flex items-center gap-2 border-2 border-gray-200 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
             <input type="checkbox" checked={isNeg} onChange={(e) => setIsNeg(e.target.checked)} className="w-4 h-4 accent-red-600" />
             <span className="text-sm font-bold text-gray-700">Negative</span>
+          </label>
+          <label className="flex items-center gap-2 border-2 border-gray-200 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
+            <input type="checkbox" checked={isComp} onChange={(e) => setIsComp(e.target.checked)} className="w-4 h-4 accent-orange-600" />
+            <span className="text-sm font-bold text-gray-700">Competitor</span>
           </label>
           <button
             onClick={addKeyword}
@@ -194,16 +241,32 @@ export default function KeywordsPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 uppercase">Keyword</th>
-                <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 uppercase">Category</th>
-                <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 uppercase">Type</th>
-                <th className="px-5 py-3 text-right text-xs font-bold text-gray-700 uppercase">Matches</th>
+                {([
+                  { key: "word",     label: "Keyword",  align: "text-left" },
+                  { key: "category", label: "Category", align: "text-left" },
+                  { key: "type",     label: "Type",     align: "text-left" },
+                  { key: "matches",  label: "Matches",  align: "text-right" },
+                ] as const).map(({ key, label, align }) => (
+                  <th key={key} className={`px-5 py-3 ${align}`}>
+                    <button
+                      onClick={() => toggleSort(key)}
+                      className={`inline-flex items-center gap-1 text-xs font-bold uppercase transition-colors ${
+                        sortKey === key ? "text-blue-700" : "text-gray-700 hover:text-blue-600"
+                      }`}
+                    >
+                      {label}
+                      {sortKey === key
+                        ? (sortDir === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)
+                        : <ArrowUpDown size={11} className="text-gray-300" />}
+                    </button>
+                  </th>
+                ))}
                 <th className="px-5 py-3 text-center text-xs font-bold text-gray-700 uppercase">Active</th>
                 <th className="px-5 py-3 text-center text-xs font-bold text-gray-700 uppercase">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {[...active, ...inactive].map((kw) => (
+              {sortedRows.map((kw) => (
                 <tr key={kw.id} className={`transition-colors ${kw.is_active ? "hover:bg-gray-50" : "opacity-50 bg-gray-50"}`}>
                   <td className="px-5 py-3.5">
                     <span className="text-sm font-extrabold text-gray-900">{kw.word}</span>
@@ -214,10 +277,17 @@ export default function KeywordsPage() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5">
-                    {kw.is_negative
-                      ? <span className="text-xs font-bold text-red-700 bg-red-100 px-2.5 py-1 rounded-md border border-red-200">Negative</span>
-                      : <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-md border border-blue-200">Monitor</span>
-                    }
+                    <div className="flex gap-1 flex-wrap">
+                      {kw.is_negative && (
+                        <span className="text-xs font-bold text-red-700 bg-red-100 px-2.5 py-1 rounded-md border border-red-200">Negative</span>
+                      )}
+                      {kw.is_competitor && (
+                        <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2.5 py-1 rounded-md border border-orange-200">Competitor</span>
+                      )}
+                      {!kw.is_negative && !kw.is_competitor && (
+                        <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-md border border-blue-200">Monitor</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-3.5 text-right">
                     <span className="text-sm font-extrabold text-gray-900">

@@ -9,7 +9,7 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Legend,
   BarChart, Bar,
 } from "recharts";
-import { MessageSquare, ThumbsUp, ThumbsDown, TrendingUp, Zap, Activity, Tag, Hash } from "lucide-react";
+import { MessageSquare, ThumbsUp, ThumbsDown, TrendingUp, Zap, Activity, Tag, Hash, ArrowDownWideNarrow, ArrowUpNarrowWide } from "lucide-react";
 import Link from "next/link";
 
 const COLORS = ["#16a34a", "#94a3b8", "#dc2626"];
@@ -33,6 +33,7 @@ export default function OverviewPage() {
   const [trend,   setTrend]   = useState<{ date: string; positive: number; neutral: number; negative: number }[]>([]);
   const [kwStats, setKwStats] = useState<KeywordStat[]>([]);
   const [range,   setRange]   = useState<DateRange>({ days: 7 });
+  const [kwSort,  setKwSort]  = useState<"desc" | "asc">("desc");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
@@ -44,6 +45,13 @@ export default function OverviewPage() {
   }, [range]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Chart rows follow the chosen order. Cell colours are derived from the same
+  // sorted array — indexing the unsorted list here would mis-colour the bars.
+  const kwChart = [...kwStats]
+    .map((k) => ({ name: k.word, count: k.mention_count ?? k.match_count, negative: k.is_negative }))
+    .sort((a, b) => (kwSort === "desc" ? b.count - a.count : a.count - b.count))
+    .slice(0, 8);
 
   const sentimentPie = stats
     ? [
@@ -156,18 +164,29 @@ export default function OverviewPage() {
       {kwStats.length > 0 && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
                 <Tag size={15} className="text-blue-600" /> Keyword Match Volume
               </h2>
-              <Link href="/keywords" className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline">
-                Manage →
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setKwSort((s) => (s === "desc" ? "asc" : "desc"))}
+                  title={kwSort === "desc" ? "กำลังเรียงมาก→น้อย" : "กำลังเรียงน้อย→มาก"}
+                  className="flex items-center gap-1 text-xs font-bold text-gray-600 hover:text-blue-700
+                             border-2 border-gray-200 rounded-lg px-2 py-1 transition-colors"
+                >
+                  {kwSort === "desc" ? <ArrowDownWideNarrow size={12} /> : <ArrowUpNarrowWide size={12} />}
+                  {kwSort === "desc" ? "มาก → น้อย" : "น้อย → มาก"}
+                </button>
+                <Link href="/keywords" className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline">
+                  Manage →
+                </Link>
+              </div>
             </div>
             {mounted ? (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart
-                  data={kwStats.slice(0, 8).map((k) => ({ name: k.word, count: k.mention_count ?? k.match_count, negative: k.is_negative }))}
+                  data={kwChart}
                   layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 12, fill: "#374151", fontWeight: 600 }} />
@@ -177,8 +196,8 @@ export default function OverviewPage() {
                     formatter={(val) => [`${val} mentions`, "Matches"]}
                   />
                   <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                    {kwStats.slice(0, 8).map((k, i) => (
-                      <Cell key={i} fill={k.is_negative ? "#dc2626" : "#3b82f6"} />
+                    {kwChart.map((k, i) => (
+                      <Cell key={i} fill={k.negative ? "#dc2626" : "#3b82f6"} />
                     ))}
                   </Bar>
                 </BarChart>

@@ -7,7 +7,7 @@ import MentionCard, { type MentionData } from "@/components/MentionCard";
 import MentionDetail from "@/components/MentionDetail";
 import DateRangePicker from "@/components/DateRangePicker";
 import { DateRange, rangeParams } from "@/lib/dateRange";
-import { RefreshCw, Tag } from "lucide-react";
+import { RefreshCw, Tag, User } from "lucide-react";
 
 const CHANNELS   = ["", "facebook", "facebook_comment", "twitter", "tiktok", "youtube", "line_oa", "instagram", "pantip", "news"];
 const SENTIMENTS = ["", "positive", "neutral", "negative"];
@@ -24,6 +24,8 @@ function MentionsContent() {
   const [sentiment, setSentiment] = useState("");
   const [priority,  setPriority]  = useState("");
   const [keyword,   setKeyword]   = useState(searchParams.get("keyword") ?? "");
+  // Set from ?author= so User Trends can link straight to one person's posts.
+  const [author,    setAuthor]    = useState(searchParams.get("author") ?? "");
   const [range,     setRange]     = useState<DateRange>({ days: 7 });
   const [detailId,  setDetailId]  = useState<number | null>(null);
 
@@ -34,8 +36,9 @@ function MentionsContent() {
     if (sentiment) params.sentiment = sentiment;
     if (priority)  params.priority  = priority;
     if (keyword)   params.keyword   = keyword;
+    if (author)    params.author    = author;
     fetchMentions(params).then((d) => setMentions(d)).finally(() => setLoading(false));
-  }, [channel, sentiment, priority, keyword, range]);
+  }, [channel, sentiment, priority, keyword, author, range]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -56,6 +59,22 @@ function MentionsContent() {
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
           </button>
         </div>
+
+        {/* Active author filter, arrived via ?author= from User Trends */}
+        {author && (
+          <div className="flex items-center gap-2 bg-blue-50 border-2 border-blue-200 rounded-xl px-4 py-2.5">
+            <User size={14} className="text-blue-600 shrink-0" />
+            <span className="text-sm font-semibold text-blue-900">
+              กำลังดูโพสต์ของ <strong>{author}</strong>
+            </span>
+            <button
+              onClick={() => setAuthor("")}
+              className="ml-auto text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline"
+            >
+              ดูทุกคน
+            </button>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="bg-white border-2 border-gray-200 rounded-xl p-4 space-y-3">

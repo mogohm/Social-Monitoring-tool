@@ -1,0 +1,1714 @@
+Opening: https://www.facebook.com/groups/223422232142743?sorting_setting=CHRONOLOGICAL
+Scrolling to load posts...
+Extracting debug data...
+
+Saved to H:\Social Monitoring Tool\backend\debug_engagement.json
+Feed children: 17, Posts found: 4
+
+============================================================
+POST 1: Arale Arale
+--- innerText (first 400 chars) ---
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Arale Arale
+All-star contributor
+ 
+·
+ 
+·
+r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+m
+
+--- aria-labels (30) ---
+  [A] label='Arale Arale' text=''
+  [svg] label='Arale Arale' text=''
+  [DIV] label='All-star contributor, view badge details' text='All-star contributor'
+  [DIV] label='Actions for this post by Arale Arale' text=''
+  [A] label='May be an image of text that says "$3.75 $4.37 10 10 신달 -21- Smoky Smoky_chka ch' text=''
+  [A] label='May be an image of text' text=''
+  [A] label='May be an image of text that says "$2.50 Q 8 $4.37 23 C Steamy เทหน้าตัก ตก 21 $' text=''
+  [DIV] label='Like' text='3'
+  [DIV] label='React' text=''
+  [DIV] label='Leave a comment' text='4'
+  [DIV] label='Send' text=''
+  [SPAN] label='See who reacted to this' text=''
+  [DIV] label='Like: 3 people' text=''
+  [DIV] label='Comment by Zacker Anurak 10 hours ago' text='Zacker Anurak
+ 
+·
+10h
+ตอนนี้เป็นไงบ้างครับ
+Reply
+See transla'
+  [A] label='Tuesday 14 July 2026 at 15:43' text='10h'
+--- images (7) ---
+  currentSrc=https://static.xx.fbcdn.net/rsrc.php/yY/r/8edrFl79jzL.webp
+  attrSrc   =https://static.xx.fbcdn.net/rsrc.php/yY/r/8edrFl79jzL.webp
+  size attr=(12x12) natural=(16x16)
+  currentSrc=https://static.xx.fbcdn.net/images/emoji.php/v9/td4/1/16/1f606.png
+  attrSrc   =https://static.xx.fbcdn.net/images/emoji.php/v9/td4/1/16/1f606.png
+  size attr=(16x16) natural=(16x16)
+  currentSrc=https://scontent.fbkk28-1.fna.fbcdn.net/v/t39.30808-6/745885478_2723375467963007
+  attrSrc   =https://scontent.fbkk28-1.fna.fbcdn.net/v/t39.30808-6/745885478_2723375467963007
+  size attr=(x) natural=(446x590)
+  currentSrc=https://scontent.fbkk28-1.fna.fbcdn.net/v/t39.30808-6/747790182_2723375500963004
+  attrSrc   =https://scontent.fbkk28-1.fna.fbcdn.net/v/t39.30808-6/747790182_2723375500963004
+  size attr=(x) natural=(423x590)
+  currentSrc=https://scontent.fbkk28-1.fna.fbcdn.net/v/t39.30808-6/746021221_2723375536629667
+  attrSrc   =https://scontent.fbkk28-1.fna.fbcdn.net/v/t39.30808-6/746021221_2723375536629667
+  size attr=(x) natural=(433x590)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(18x18) natural=(150x150)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(16x16) natural=(150x150)
+--- span numbers ---
+  '3' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '8' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '9' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '1' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '1' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '4' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '7' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '0' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '6' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+  '2' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+0
+t
+u
+6
+2
+0
+
+
+============================================================
+POST 2: CHENLONGs
+--- innerText (first 400 chars) ---
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+CHENLONGs
+Top contributor
+ 
+·
+ 
+·
+r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+m
+0
+f
+a
+a
+--- aria-labels (25) ---
+  [A] label='CHENLONGs, view story' text=''
+  [svg] label='CHENLONGs, view story' text=''
+  [DIV] label='Top contributor, view badge details' text='Top contributor'
+  [DIV] label='Actions for this post by CHENLONGs' text=''
+  [DIV] label='Video player' text='0:02 / 3:29:18'
+  [DIV] label='Play Video' text=''
+  [DIV] label='Pause' text=''
+  [DIV] label='Change Position' text=''
+  [DIV] label='Settings' text=''
+  [A] label='Enlarge' text=''
+  [DIV] label='Continue watching while you browse Facebook.' text=''
+  [DIV] label='Change volume' text=''
+  [DIV] label='Unmute' text=''
+  [A] label='CHENLONGs, view story' text=''
+  [svg] label='CHENLONGs, view story' text=''
+--- images (1) ---
+  currentSrc=https://static.xx.fbcdn.net/rsrc.php/yJ/r/9IJioPU0OFV.webp
+  attrSrc   =https://static.xx.fbcdn.net/rsrc.php/yJ/r/9IJioPU0OFV.webp
+  size attr=(12x12) natural=(16x16)
+--- span numbers ---
+  '3' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '8' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '9' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '1' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '1' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '4' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '7' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '2' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '6' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+  '2' in: r
+d
+p
+s
+t
+o
+n
+o
+e
+S
+f
+a
+3
+8
+9
+g
+1
+1
+4
+7
+g
+a
+g
+m
+2
+t
+u
+6
+2
+0
+
+
+============================================================
+POST 3: DKYT
+--- innerText (first 400 chars) ---
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+DKYT
+ 
+·
+o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+a
+3
+4
+4
+4
+0
+4
+i
+g
+t
+1
+1
+7
+l
+i
+h
+2
+
+--- aria-labels (23) ---
+  [A] label='DKYT, view story' text=''
+  [svg] label='DKYT, view story' text=''
+  [DIV] label='Actions for this post by DKYT' text=''
+  [A] label='DKYT, view story' text=''
+  [svg] label='DKYT, view story' text=''
+  [DIV] label='Like' text='3'
+  [DIV] label='React' text=''
+  [DIV] label='Leave a comment' text='2'
+  [DIV] label='Send' text=''
+  [SPAN] label='See who reacted to this' text=''
+  [DIV] label='Like: 3 people' text=''
+  [DIV] label='Comment by Stch Gun'Art 8 hours ago' text='Stch Gun'Art
+ 
+·
+8h
+จบแล้วครับ ลงต่อได้เลย 
+Reply
+See transl'
+  [A] label='Tuesday 14 July 2026 at 17:52' text='8h'
+  [DIV] label='Hide or report this' text=''
+  [DIV] label='Like' text=''
+--- images (4) ---
+  currentSrc=https://static.xx.fbcdn.net/images/emoji.php/v9/td4/1/16/1f606.png
+  attrSrc   =https://static.xx.fbcdn.net/images/emoji.php/v9/td4/1/16/1f606.png
+  size attr=(16x16) natural=(16x16)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(18x18) natural=(150x150)
+  currentSrc=https://static.xx.fbcdn.net/images/emoji.php/v9/td0/1/16/1f602.png
+  attrSrc   =https://static.xx.fbcdn.net/images/emoji.php/v9/td0/1/16/1f602.png
+  size attr=(16x16) natural=(16x16)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(16x16) natural=(150x150)
+--- span numbers ---
+  '0' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '1' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '9' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '4' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '4' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '6' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '0' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '5' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '3' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '7' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+
+============================================================
+POST 4: Uthai Burawannint
+--- innerText (first 400 chars) ---
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Facebook
+Uthai Burawannint
+Top contributor
+ 
+·
+ 
+·
+o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+a
+--- aria-labels (31) ---
+  [A] label='Uthai Burawannint' text=''
+  [svg] label='Uthai Burawannint' text=''
+  [DIV] label='Top contributor, view badge details' text='Top contributor'
+  [DIV] label='Actions for this post by Uthai Burawannint' text=''
+  [DIV] label='Like' text='31'
+  [DIV] label='React' text=''
+  [DIV] label='Leave a comment' text='24'
+  [DIV] label='Send' text=''
+  [SPAN] label='See who reacted to this' text=''
+  [DIV] label='Like: 22 people' text=''
+  [DIV] label='Haha: 5 people' text=''
+  [DIV] label='Sad: 2 people' text=''
+  [DIV] label='Comment by Elenphent_Yed 13 hours ago' text='Elenphent_Yed
+ 
+·
+13h
+ชิพน้อย มัลติเว โดนแน่นอน
+Reply
+See tr'
+  [A] label='Profile picture' text=''
+  [A] label='Tuesday 14 July 2026 at 12:08' text='13h'
+--- images (9) ---
+  currentSrc=https://static.xx.fbcdn.net/rsrc.php/yJ/r/9IJioPU0OFV.webp
+  attrSrc   =https://static.xx.fbcdn.net/rsrc.php/yJ/r/9IJioPU0OFV.webp
+  size attr=(12x12) natural=(16x16)
+  currentSrc=https://static.xx.fbcdn.net/images/emoji.php/v9/tad/1/20/1f606.png
+  attrSrc   =https://static.xx.fbcdn.net/images/emoji.php/v9/tad/1/20/1f606.png
+  size attr=(20x20) natural=(20x20)
+  currentSrc=https://scontent.fbkk28-1.fna.fbcdn.net/v/t39.30808-6/747105668_4447687225479792
+  attrSrc   =https://scontent.fbkk28-1.fna.fbcdn.net/v/t39.30808-6/747105668_4447687225479792
+  size attr=(526x1128) natural=(526x1128)
+  currentSrc=https://static.xx.fbcdn.net/images/emoji.php/v9/td4/1/16/1f606.png
+  attrSrc   =https://static.xx.fbcdn.net/images/emoji.php/v9/td4/1/16/1f606.png
+  size attr=(16x16) natural=(16x16)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(18x18) natural=(150x150)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(18x18) natural=(150x150)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(18x18) natural=(150x150)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(16x16) natural=(150x150)
+  currentSrc=data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  attrSrc   =data:image/svg+xml,%3Csvg fill='none' xmlns='http://www.w3.org/2000/svg' viewBox
+  size attr=(16x16) natural=(150x150)
+--- span numbers ---
+  '0' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '1' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '9' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '4' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '4' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '6' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '0' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '5' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '3' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+
+  '7' in: o
+r
+S
+p
+e
+o
+d
+t
+s
+n
+0
+h
+1
+9
+m
+4
+t
+t
+4
+f
+6
+0
+5
+t
+t
+3
+7
+9
+4
+m
+

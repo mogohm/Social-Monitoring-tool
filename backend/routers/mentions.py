@@ -47,6 +47,7 @@ async def list_mentions(
     sentiment: Optional[str] = None,
     priority: Optional[str] = None,
     keyword: Optional[str] = None,
+    author: Optional[str] = None,
     project_id: Optional[int] = None,
     days: int = Query(7, ge=1, le=90),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
@@ -65,6 +66,8 @@ async def list_mentions(
         q = q.where(Mention.priority == priority)
     if keyword:
         q = q.where(Mention.content.ilike(f"%{keyword}%"))
+    if author:
+        q = q.where(Mention.author == author)
     if project_id:
         q = q.where(Mention.project_id == project_id)
     q = q.order_by(desc(Mention.created_at)).limit(limit).offset(offset)

@@ -138,6 +138,9 @@ class Keyword(Base):
     word: Mapped[str] = mapped_column(String(255), unique=True)
     category: Mapped[str | None] = mapped_column(String(100))
     is_negative: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Tracked as a competitor term — orthogonal to is_negative, so a word can
+    # be both (e.g. a rival brand mentioned in complaints).
+    is_competitor: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     match_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

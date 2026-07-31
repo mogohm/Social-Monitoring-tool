@@ -3,9 +3,9 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 from backend.models.database import AsyncSessionLocal
-from backend.models.models import Alert, Mention
+from backend.models.models import Alert, AlertLog, Mention
 from backend.services.email_service import send_alert_email
-from sqlalchemy import select
+from sqlalchemy import select, desc
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -14,11 +14,11 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
 class AlertBody(BaseModel):
     name: str
-    condition_type: str = "keyword_match"  # all | keyword_match | risk_score | category
-    threshold: Optional[float] = None       # for risk_score: min score 0-100
-    keywords: Optional[list[str]] = None    # for keyword_match: [] means any keyword
-    category_filter: Optional[list[str]] = None  # for category filter
-    channels: Optional[list[str]] = None    # [] means all channels
+    condition_type: str = "keyword_match"
+    threshold: Optional[float] = None
+    keywords: Optional[list[str]] = None
+    category_filter: Optional[list[str]] = None
+    channels: Optional[list[str]] = None
     email_recipients: Optional[list[str]] = None
     is_active: bool = True
 
@@ -36,6 +36,23 @@ def _serialize(row: Alert) -> dict:
         "notify_email": row.notify_email,
         "is_active": row.is_active,
         "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _serialize_log(row: AlertLog) -> dict:
+    return {
+        "id": row.id,
+        "alert_id": row.alert_id,
+        "mention_id": row.mention_id,
+        "sent_at": row.sent_at.isoformat() if row.sent_at else None,
+        "recipients": row.recipients or [],
+        "channel": row.channel,
+        "author": row.author,
+        "content_preview": row.content_preview,
+        "risk_score": row.risk_score,
+        "topic": row.topic,
+        "matched_keywords": row.matched_keywords or [],
+        "mention_url": row.mention_url,
     }
 
 
@@ -101,13 +118,27 @@ async def delete_alert(alert_id: int):
         await db.commit()
 
 
+# ─── Logs ────────────────────────────────────────────────────────────────────
+
+@router.get("/{alert_id}/logs")
+async def get_alert_logs(alert_id: int, limit: int = 50):
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(AlertLog)
+            .where(AlertLog.alert_id == alert_id)
+            .order_by(desc(AlertLog.sent_at))
+            .limit(limit)
+        )).scalars().all()
+        return {
+            "alert_id": alert_id,
+            "total": len(rows),
+            "logs": [_serialize_log(r) for r in rows],
+        }
+
+
 # ─── Trigger: called by webhook after saving a mention ──────────────────────
 
 async def check_and_send_alerts(mention: Mention, matched_keyword_names: list[str]):
-    """
-    Load active alerts, evaluate each condition against the mention,
-    and send emails when the condition is met.
-    """
     async with AsyncSessionLocal() as db:
         active_alerts = (await db.execute(
             select(Alert).where(Alert.is_active == True)
@@ -117,14 +148,12 @@ async def check_and_send_alerts(mention: Mention, matched_keyword_names: list[st
         if not alert.email_recipients:
             continue
 
-        # Channel filter
         if alert.channels:
             if mention.channel not in alert.channels:
                 continue
 
         triggered = False
         trigger_keywords: list[str] = []
-
         ctype = alert.condition_type
 
         if ctype == "all":
@@ -132,19 +161,14 @@ async def check_and_send_alerts(mention: Mention, matched_keyword_names: list[st
             trigger_keywords = matched_keyword_names
 
         elif ctype == "keyword_match":
-            # If alert.keywords is empty, any keyword match triggers
             watch = [k.lower() for k in (alert.keywords or [])]
-            if watch:
-                hits = [k for k in matched_keyword_names if k.lower() in watch]
-            else:
-                hits = matched_keyword_names
+            hits = [k for k in matched_keyword_names if k.lower() in watch] if watch else matched_keyword_names
             if hits:
                 triggered = True
                 trigger_keywords = hits
 
         elif ctype == "risk_score":
-            min_score = alert.threshold or 60
-            if (mention.risk_score or 0) >= min_score:
+            if (mention.risk_score or 0) >= (alert.threshold or 60):
                 triggered = True
                 trigger_keywords = matched_keyword_names
 
@@ -161,3 +185,20 @@ async def check_and_send_alerts(mention: Mention, matched_keyword_names: list[st
                 recipients=alert.email_recipients,
                 matched_keywords=trigger_keywords,
             )
+            # Record log
+            async with AsyncSessionLocal() as db:
+                log = AlertLog(
+                    alert_id=alert.id,
+                    mention_id=mention.id,
+                    sent_at=datetime.utcnow(),
+                    recipients=alert.email_recipients,
+                    channel=mention.channel,
+                    author=mention.author,
+                    content_preview=(mention.content or "")[:280],
+                    risk_score=mention.risk_score,
+                    topic=mention.topic,
+                    matched_keywords=trigger_keywords,
+                    mention_url=mention.url,
+                )
+                db.add(log)
+                await db.commit()

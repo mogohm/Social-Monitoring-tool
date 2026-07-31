@@ -177,6 +177,23 @@ class AdminChat(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class AlertLog(Base):
+    __tablename__ = "alert_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    alert_id: Mapped[int] = mapped_column(Integer, ForeignKey("alerts.id", ondelete="CASCADE"))
+    mention_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("mentions.id", ondelete="SET NULL"))
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    recipients: Mapped[list | None] = mapped_column(JSON)
+    channel: Mapped[str | None] = mapped_column(String(50))
+    author: Mapped[str | None] = mapped_column(String(255))
+    content_preview: Mapped[str | None] = mapped_column(String(300))
+    risk_score: Mapped[float | None] = mapped_column(Float)
+    topic: Mapped[str | None] = mapped_column(String(100))
+    matched_keywords: Mapped[list | None] = mapped_column(JSON)
+    mention_url: Mapped[str | None] = mapped_column(Text)
+
+
 class ScraperConfig(Base):
     __tablename__ = "scraper_configs"
 

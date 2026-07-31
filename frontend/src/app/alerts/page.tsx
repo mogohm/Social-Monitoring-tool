@@ -3,11 +3,26 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Bell, Plus, Trash2, Pencil, X, Check,
   Mail, AlertTriangle, Tag, Layers, Globe,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, History, Clock, User, Zap,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────
+
+interface AlertLog {
+  id: number;
+  alert_id: number;
+  mention_id: number | null;
+  sent_at: string;
+  recipients: string[];
+  channel: string | null;
+  author: string | null;
+  content_preview: string | null;
+  risk_score: number | null;
+  topic: string | null;
+  matched_keywords: string[];
+  mention_url: string | null;
+}
 
 interface AlertConfig {
   id?: number;
@@ -170,10 +185,47 @@ function AlertCard({ alert, onEdit, onDelete, onToggle }: {
   onDelete: () => void;
   onToggle: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded]   = useState(false);
+  const [showLogs, setShowLogs]   = useState(false);
+  const [logs, setLogs]           = useState<AlertLog[]>([]);
+  const [logTotal, setLogTotal]   = useState<number | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+
   const ct = CONDITION_TYPES.find((c) => c.value === alert.condition_type);
   const Icon = ct?.icon || Bell;
   const iconColor = COND_ICON_COLOR[alert.condition_type] || "bg-gray-100 text-gray-600";
+
+  async function loadLogs() {
+    if (logsLoading) return;
+    setLogsLoading(true);
+    try {
+      const { data } = await api.get(`/api/alerts/${alert.id}/logs?limit=20`);
+      setLogs(data.logs ?? []);
+      setLogTotal(data.total ?? 0);
+    } catch {
+      // ignore
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  function toggleLogs() {
+    if (!showLogs && logTotal === null) loadLogs();
+    setShowLogs((v) => !v);
+  }
+
+  function riskColor(score: number | null) {
+    if (!score) return "text-gray-400";
+    if (score >= 80) return "text-red-600 font-extrabold";
+    if (score >= 60) return "text-orange-500 font-bold";
+    return "text-yellow-600 font-bold";
+  }
+
+  function fmt(iso: string) {
+    const d = new Date(iso);
+    return d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })
+      + " " + d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+  }
 
   return (
     <div className={`bg-white rounded-xl border-2 transition-all ${alert.is_active ? "border-gray-200" : "border-gray-100 opacity-60"}`}>
@@ -190,6 +242,14 @@ function AlertCard({ alert, onEdit, onDelete, onToggle }: {
             <span className="text-blue-600">
               {alert.email_recipients.length} recipient{alert.email_recipients.length !== 1 ? "s" : ""}
             </span>
+            {logTotal !== null && (
+              <>
+                {" · "}
+                <span className={`${logTotal > 0 ? "text-green-600" : "text-gray-400"}`}>
+                  ส่งแล้ว {logTotal} ครั้ง
+                </span>
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -198,6 +258,10 @@ function AlertCard({ alert, onEdit, onDelete, onToggle }: {
             className={`w-10 h-5 rounded-full relative transition-colors ${alert.is_active ? "bg-green-500" : "bg-gray-200"}`}
           >
             <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${alert.is_active ? "left-5" : "left-0.5"}`} />
+          </button>
+          <button onClick={toggleLogs} title="ประวัติการส่ง"
+            className={`p-1.5 transition-colors ${showLogs ? "text-indigo-600" : "text-gray-400 hover:text-indigo-500"}`}>
+            <History size={14} />
           </button>
           <button onClick={() => setExpanded((v) => !v)} className="p-1.5 text-gray-400 hover:text-gray-600">
             {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
@@ -210,6 +274,8 @@ function AlertCard({ alert, onEdit, onDelete, onToggle }: {
           </button>
         </div>
       </div>
+
+      {/* Config detail */}
       {expanded && (
         <div className="px-4 pb-4 space-y-2 border-t border-gray-100 pt-3 text-xs">
           <DetailRow label="เงื่อนไข" value={ct?.desc || alert.condition_type} />
@@ -229,6 +295,95 @@ function AlertCard({ alert, onEdit, onDelete, onToggle }: {
             <DetailRow label="Channels" value={alert.channels.join(", ")} />
           )}
           <DetailRow label="Recipients" value={alert.email_recipients.join(" · ") || "—"} />
+        </div>
+      )}
+
+      {/* History log panel */}
+      {showLogs && (
+        <div className="border-t border-indigo-100 bg-indigo-50/40">
+          <div className="flex items-center justify-between px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <History size={13} className="text-indigo-500" />
+              <span className="text-xs font-extrabold text-indigo-700 uppercase tracking-wide">
+                ประวัติการส่ง
+              </span>
+              {logTotal !== null && (
+                <span className="bg-indigo-100 text-indigo-600 text-xs font-extrabold px-2 py-0.5 rounded-full">
+                  {logTotal} ครั้ง
+                </span>
+              )}
+            </div>
+            <button onClick={loadLogs} className="text-xs font-bold text-indigo-400 hover:text-indigo-600 transition-colors">
+              รีเฟรช
+            </button>
+          </div>
+
+          {logsLoading ? (
+            <div className="px-4 pb-4 text-xs text-gray-400 font-medium">กำลังโหลด…</div>
+          ) : logs.length === 0 ? (
+            <div className="px-4 pb-4 text-xs text-gray-400 font-medium italic">
+              ยังไม่เคยส่ง — รอให้มีโพสต์ตรงเงื่อนไข
+            </div>
+          ) : (
+            <div className="divide-y divide-indigo-100/60 max-h-80 overflow-y-auto">
+              {logs.map((log) => (
+                <div key={log.id} className="px-4 py-3 text-xs space-y-1.5">
+                  {/* Row 1: time + channel + risk */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1 text-gray-500">
+                      <Clock size={10} />
+                      <span className="font-semibold">{fmt(log.sent_at)}</span>
+                    </div>
+                    {log.channel && (
+                      <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded">
+                        {log.channel}
+                      </span>
+                    )}
+                    {log.risk_score !== null && (
+                      <div className="flex items-center gap-1 ml-auto">
+                        <Zap size={10} className="text-orange-400" />
+                        <span className={`text-xs ${riskColor(log.risk_score)}`}>
+                          Risk {Math.round(log.risk_score)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {/* Row 2: author + keywords */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {log.author && (
+                      <div className="flex items-center gap-1 text-gray-500">
+                        <User size={10} />
+                        <span className="font-semibold">{log.author}</span>
+                      </div>
+                    )}
+                    {log.matched_keywords?.length > 0 && (
+                      <div className="flex gap-1 flex-wrap">
+                        {log.matched_keywords.map((kw) => (
+                          <span key={kw}
+                            className="bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded text-xs">
+                            {kw}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Row 3: content preview */}
+                  {log.content_preview && (
+                    <p className="text-gray-600 font-medium leading-relaxed line-clamp-2 bg-white/70 rounded-lg px-2 py-1.5">
+                      {log.content_preview}
+                    </p>
+                  )}
+                  {/* Row 4: link */}
+                  {log.mention_url && (
+                    <a href={log.mention_url} target="_blank" rel="noreferrer"
+                      className="text-blue-500 hover:text-blue-700 font-semibold underline truncate block">
+                      ดูโพสต์ต้นฉบับ →
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

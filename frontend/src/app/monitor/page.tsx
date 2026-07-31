@@ -66,7 +66,7 @@ export default function MonitorPage() {
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
 
   const ADMIN_TOKEN =
-    typeof window !== "undefined" ? sessionStorage.getItem("adminToken") ?? "socialeye_admin_2026" : "socialeye_admin_2026";
+    typeof window !== "undefined" ? sessionStorage.getItem("adminToken") ?? "" : "";
 
   async function load() {
     try {

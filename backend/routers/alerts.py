@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 from backend.models.database import AsyncSessionLocal
 from backend.models.models import Alert, AlertLog, Mention
-from backend.services.email_service import send_alert_email
+from backend.services.email_service import send_alert_email, send_alert_emails
 from sqlalchemy import select, desc
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -54,6 +54,8 @@ def _serialize_log(row: AlertLog) -> dict:
         "topic": row.topic,
         "matched_keywords": row.matched_keywords or [],
         "mention_url": row.mention_url,
+        "status": row.status or "sent",
+        "error": row.error,
     }
 
 
@@ -194,67 +196,92 @@ async def get_alert_logs(alert_id: int, limit: int = 50):
 
 # ─── Trigger: called by webhook after saving a mention ──────────────────────
 
-async def check_and_send_alerts(mention: Mention, matched_keyword_names: list[str]):
+def _alert_matches(alert: Alert, mention: Mention,
+                   matched_keyword_names: list[str]) -> tuple[bool, list[str]]:
+    """Return (triggered, keywords_that_triggered) for one alert."""
+    if not alert.email_recipients:
+        return False, []
+    if alert.channels and mention.channel not in alert.channels:
+        return False, []
+
+    ctype = alert.condition_type
+
+    if ctype == "all":
+        return True, matched_keyword_names
+
+    if ctype == "keyword_match":
+        watch = [k.lower() for k in (alert.keywords or [])]
+        hits = ([k for k in matched_keyword_names if k.lower() in watch]
+                if watch else matched_keyword_names)
+        return (bool(hits), hits)
+
+    if ctype == "risk_score":
+        if (mention.risk_score or 0) >= (alert.threshold or 60):
+            return True, matched_keyword_names
+        return False, []
+
+    if ctype == "category":
+        cats = [c.lower() for c in (alert.category_filter or [])]
+        if cats and (mention.topic or "general").lower() in cats:
+            return True, matched_keyword_names
+        return False, []
+
+    return False, []
+
+
+async def check_and_send_alerts(mention: Mention, matched_keyword_names: list[str]) -> int:
+    """Evaluate every active alert against this mention, send emails, write logs.
+
+    Must be awaited inside the request — Vercel freezes the function once the
+    HTTP response is returned, so a fire-and-forget task would never run.
+    Returns the number of emails successfully sent.
+    """
     async with AsyncSessionLocal() as db:
         active_alerts = (await db.execute(
             select(Alert).where(Alert.is_active == True)
         )).scalars().all()
 
+    triggered = []
     for alert in active_alerts:
-        if not alert.email_recipients:
-            continue
+        ok, kws = _alert_matches(alert, mention, matched_keyword_names)
+        if ok:
+            triggered.append((alert, kws))
 
-        if alert.channels:
-            if mention.channel not in alert.channels:
-                continue
+    if not triggered:
+        return 0
 
-        triggered = False
-        trigger_keywords: list[str] = []
-        ctype = alert.condition_type
+    print(f"[alerts] {len(triggered)} alert(s) triggered for mention {mention.id}")
 
-        if ctype == "all":
-            triggered = True
-            trigger_keywords = matched_keyword_names
+    # One SMTP connection for all of them
+    results = await send_alert_emails([
+        {
+            "mention": mention,
+            "alert_name": alert.name,
+            "recipients": alert.email_recipients,
+            "matched_keywords": kws,
+        }
+        for alert, kws in triggered
+    ])
 
-        elif ctype == "keyword_match":
-            watch = [k.lower() for k in (alert.keywords or [])]
-            hits = [k for k in matched_keyword_names if k.lower() in watch] if watch else matched_keyword_names
-            if hits:
-                triggered = True
-                trigger_keywords = hits
-
-        elif ctype == "risk_score":
-            if (mention.risk_score or 0) >= (alert.threshold or 60):
-                triggered = True
-                trigger_keywords = matched_keyword_names
-
-        elif ctype == "category":
-            cats = [c.lower() for c in (alert.category_filter or [])]
-            if cats and (mention.topic or "general") in cats:
-                triggered = True
-                trigger_keywords = matched_keyword_names
-
-        if triggered:
-            await send_alert_email(
-                mention=mention,
-                alert_name=alert.name,
+    # Log every send attempt (successful or not) in one transaction
+    now = datetime.utcnow()
+    async with AsyncSessionLocal() as db:
+        for (alert, kws), (ok, err) in zip(triggered, results):
+            db.add(AlertLog(
+                alert_id=alert.id,
+                mention_id=mention.id,
+                sent_at=now,
                 recipients=alert.email_recipients,
-                matched_keywords=trigger_keywords,
-            )
-            # Record log
-            async with AsyncSessionLocal() as db:
-                log = AlertLog(
-                    alert_id=alert.id,
-                    mention_id=mention.id,
-                    sent_at=datetime.utcnow(),
-                    recipients=alert.email_recipients,
-                    channel=mention.channel,
-                    author=mention.author,
-                    content_preview=(mention.content or "")[:280],
-                    risk_score=mention.risk_score,
-                    topic=mention.topic,
-                    matched_keywords=trigger_keywords,
-                    mention_url=mention.url,
-                )
-                db.add(log)
-                await db.commit()
+                channel=mention.channel,
+                author=mention.author,
+                content_preview=(mention.content or "")[:280],
+                risk_score=mention.risk_score,
+                topic=mention.topic,
+                matched_keywords=kws,
+                mention_url=mention.url,
+                status="sent" if ok else "failed",
+                error=None if ok else err[:500],
+            ))
+        await db.commit()
+
+    return sum(1 for ok, _ in results if ok)

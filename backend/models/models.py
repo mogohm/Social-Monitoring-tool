@@ -192,6 +192,8 @@ class AlertLog(Base):
     topic: Mapped[str | None] = mapped_column(String(100))
     matched_keywords: Mapped[list | None] = mapped_column(JSON)
     mention_url: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="sent")   # sent | failed
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 class ScraperConfig(Base):

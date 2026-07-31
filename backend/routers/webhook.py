@@ -6,7 +6,6 @@ from backend.models.database import AsyncSessionLocal
 from backend.models.models import Mention, Keyword, AdminChat
 from sqlalchemy import select
 from datetime import datetime
-import asyncio
 import re
 import unicodedata
 
@@ -151,19 +150,28 @@ async def generic_webhook(payload: MentionPayload):
         await db.commit()
         await db.refresh(mention)
 
-    # Fire alerts asynchronously (don't block the webhook response)
+    # Must await — Vercel freezes the serverless function the moment the HTTP
+    # response is returned, so a fire-and-forget task would never run.
     matched_names = [t["word"] for t in tags]
-    asyncio.ensure_future(_fire_alerts(mention, matched_names))
+    alerts_sent = await _fire_alerts(mention, matched_names)
 
-    return {"status": "ok", "channel": payload.channel, "keywords_matched": len(tags)}
+    return {
+        "status": "ok",
+        "channel": payload.channel,
+        "keywords_matched": len(tags),
+        "alerts_sent": alerts_sent,
+    }
 
 
-async def _fire_alerts(mention: Mention, matched_names: list):
+async def _fire_alerts(mention: Mention, matched_names: list) -> int:
+    """Evaluate and send alerts. Never raises — a failure here must not
+    cause the collector to think the mention wasn't stored."""
     try:
         from backend.routers.alerts import check_and_send_alerts
-        await check_and_send_alerts(mention, matched_names)
+        return await check_and_send_alerts(mention, matched_names)
     except Exception as exc:
         print(f"[alerts] fire error: {exc}")
+        return 0
 
 
 @router.post("/line")

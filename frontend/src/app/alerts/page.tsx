@@ -22,6 +22,8 @@ interface AlertLog {
   topic: string | null;
   matched_keywords: string[];
   mention_url: string | null;
+  status: string;
+  error: string | null;
 }
 
 interface AlertConfig {
@@ -399,12 +401,19 @@ function AlertCard({ alert, onEdit, onDelete, onToggle }: {
             <div className="divide-y divide-indigo-100/60 max-h-80 overflow-y-auto">
               {logs.map((log) => (
                 <div key={log.id} className="px-4 py-3 text-xs space-y-1.5">
-                  {/* Row 1: time + channel + risk */}
+                  {/* Row 1: time + status + channel + risk */}
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1 text-gray-500">
                       <Clock size={10} />
                       <span className="font-semibold">{fmt(log.sent_at)}</span>
                     </div>
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                      log.status === "failed"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-green-100 text-green-700"
+                    }`}>
+                      {log.status === "failed" ? "ส่งไม่สำเร็จ" : "ส่งสำเร็จ"}
+                    </span>
                     {log.channel && (
                       <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded">
                         {log.channel}
@@ -442,6 +451,12 @@ function AlertCard({ alert, onEdit, onDelete, onToggle }: {
                   {log.content_preview && (
                     <p className="text-gray-600 font-medium leading-relaxed line-clamp-2 bg-white/70 rounded-lg px-2 py-1.5">
                       {log.content_preview}
+                    </p>
+                  )}
+                  {/* Error detail when the send failed */}
+                  {log.status === "failed" && log.error && (
+                    <p className="text-red-600 font-semibold bg-red-50 rounded-lg px-2 py-1.5 break-all">
+                      {log.error}
                     </p>
                   )}
                   {/* Row 4: link */}

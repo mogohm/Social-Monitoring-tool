@@ -147,22 +147,64 @@ def _build_html(mention, alert_name: str, matched_keywords: list) -> str:
 </html>"""
 
 
-def _send_sync(recipients: list, subject: str, html: str):
+def _send_batch_sync(messages: list) -> list:
+    """Send every message over a single SMTP connection.
+
+    messages: list of (recipients, subject, html)
+    Returns a list of (ok: bool, error: str) — one entry per message.
+    """
     if not SMTP_USER or not SMTP_PASS:
         print("[email] SMTP_USER/SMTP_PASS not set — skip")
-        return
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = f"SocialEye Monitor <{SMTP_USER}>"
-    msg["To"]      = ", ".join(recipients)
-    msg.attach(MIMEText(html, "html", "utf-8"))
+        return [(False, "SMTP not configured")] * len(messages)
+
+    results = []
     ctx = ssl.create_default_context()
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as srv:
-        srv.ehlo()
-        srv.starttls(context=ctx)
-        srv.login(SMTP_USER, SMTP_PASS)
-        srv.sendmail(SMTP_USER, recipients, msg.as_string())
-    print(f"[email] ✓ sent to {recipients}")
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as srv:
+            srv.ehlo()
+            srv.starttls(context=ctx)
+            srv.login(SMTP_USER, SMTP_PASS)
+            for recipients, subject, html in messages:
+                try:
+                    msg = MIMEMultipart("alternative")
+                    msg["Subject"] = subject
+                    msg["From"]    = f"SocialEye Monitor <{SMTP_USER}>"
+                    msg["To"]      = ", ".join(recipients)
+                    msg.attach(MIMEText(html, "html", "utf-8"))
+                    srv.sendmail(SMTP_USER, recipients, msg.as_string())
+                    print(f"[email] ✓ sent to {recipients}")
+                    results.append((True, ""))
+                except Exception as exc:
+                    print(f"[email] ✗ send to {recipients}: {exc}")
+                    results.append((False, str(exc)))
+    except Exception as exc:
+        print(f"[email] ✗ SMTP connection failed: {exc}")
+        return [(False, f"SMTP connection failed: {exc}")] * len(messages)
+    return results
+
+
+async def send_alert_emails(items: list) -> list:
+    """Send many alert emails over one SMTP connection.
+
+    items: list of dicts with keys mention, alert_name, recipients, matched_keywords
+    Returns a list of (ok, error) matching the input order.
+    """
+    if not items:
+        return []
+    messages = [
+        (
+            it["recipients"],
+            f"⚠️ [SocialEye] {it['alert_name']} — {it['mention'].author or 'Unknown'}",
+            _build_html(it["mention"], it["alert_name"], it["matched_keywords"]),
+        )
+        for it in items
+    ]
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, lambda: _send_batch_sync(messages))
+    except Exception as exc:
+        print(f"[email] ✗ {exc}")
+        return [(False, str(exc))] * len(items)
 
 
 async def send_alert_email(
@@ -170,13 +212,14 @@ async def send_alert_email(
     alert_name: str,
     recipients: list,
     matched_keywords: list,
-):
+) -> bool:
+    """Send a single alert email. Returns True on success."""
     if not recipients:
-        return
-    subject = f"⚠️ [SocialEye] {alert_name} — {mention.author or 'Unknown'}"
-    html    = _build_html(mention, alert_name, matched_keywords)
-    loop    = asyncio.get_event_loop()
-    try:
-        await loop.run_in_executor(None, lambda: _send_sync(recipients, subject, html))
-    except Exception as exc:
-        print(f"[email] ✗ {exc}")
+        return False
+    results = await send_alert_emails([{
+        "mention": mention,
+        "alert_name": alert_name,
+        "recipients": recipients,
+        "matched_keywords": matched_keywords,
+    }])
+    return bool(results and results[0][0])

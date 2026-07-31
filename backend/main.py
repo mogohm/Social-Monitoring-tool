@@ -42,6 +42,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS notify_email     BOOLEAN DEFAULT TRUE",
             "ALTER TABLE alerts ALTER COLUMN notify_line     SET DEFAULT FALSE",
             "ALTER TABLE alerts ALTER COLUMN notify_telegram SET DEFAULT FALSE",
+            "ALTER TABLE alert_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'sent'",
+            "ALTER TABLE alert_logs ADD COLUMN IF NOT EXISTS error  TEXT",
         ]:
             try:
                 await conn.execute(text(col_sql))

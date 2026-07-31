@@ -23,15 +23,26 @@ export function isCustom(range: DateRange): boolean {
   return Boolean(range.from || range.to);
 }
 
+/**
+ * Minutes east of UTC for this browser (Bangkok = 420).
+ * getTimezoneOffset() reports the opposite sign, hence the negation.
+ */
+export function tzOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset();
+}
+
 /** Query params for the API. */
 export function rangeParams(range: DateRange): Record<string, string | number> {
   if (isCustom(range)) {
-    const p: Record<string, string | number> = {};
+    // A calendar date is meaningless without a timezone: read as UTC, picking
+    // "29 July" in Bangkok returned only 30 July posts. The offset lets the
+    // API map the local day onto the right UTC window.
+    const p: Record<string, string | number> = { tz_offset: tzOffsetMinutes() };
     if (range.from) p.date_from = range.from;
     if (range.to) p.date_to = range.to;
     return p;
   }
-  return { days: range.days ?? 7 };
+  return { days: range.days ?? 7, tz_offset: tzOffsetMinutes() };
 }
 
 /** Same thing as a query string, for helpers that build URLs by hand. */

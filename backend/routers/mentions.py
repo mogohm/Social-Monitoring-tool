@@ -7,7 +7,7 @@ from backend.models.database import get_db
 from backend.models.models import Mention, Keyword
 from backend.services.ai_service import analyze_text
 from backend.utils.timefmt import utc_iso
-from backend.utils.daterange import resolve_range
+from backend.utils.daterange import resolve_range, normalise_offset
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/mentions", tags=["mentions"])
@@ -52,11 +52,12 @@ async def list_mentions(
     days: int = Query(7, ge=1, le=90),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
+    tz_offset: Optional[int] = Query(None, description="Client minutes east of UTC, e.g. 420 for Bangkok"),
     limit: int = Query(50, le=200),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    since, until = resolve_range(days, date_from, date_to)
+    since, until = resolve_range(days, date_from, date_to, tz_offset)
     q = select(Mention).where(Mention.created_at.between(since, until)).where(Mention.is_spam == False)
     if channel:
         q = q.where(Mention.channel == channel)
@@ -80,10 +81,11 @@ async def get_stats(
     days: int = Query(7, ge=1, le=90),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
+    tz_offset: Optional[int] = Query(None, description="Client minutes east of UTC, e.g. 420 for Bangkok"),
     project_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    since, until = resolve_range(days, date_from, date_to)
+    since, until = resolve_range(days, date_from, date_to, tz_offset)
     base = select(Mention).where(Mention.created_at.between(since, until)).where(Mention.is_spam == False)
     if project_id:
         base = base.where(Mention.project_id == project_id)
@@ -131,12 +133,19 @@ async def get_trend(
     days: int = Query(7, ge=1, le=90),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
+    tz_offset: Optional[int] = Query(None, description="Client minutes east of UTC, e.g. 420 for Bangkok"),
     db: AsyncSession = Depends(get_db),
 ):
-    since, until = resolve_range(days, date_from, date_to)
+    since, until = resolve_range(days, date_from, date_to, tz_offset)
+    off = normalise_offset(tz_offset)
+
+    # Bucket by the viewer's calendar day, not the UTC one. Truncating raw UTC
+    # put a 05:44 Bangkok post into the previous day's bar, so the chart
+    # disagreed with the timestamps printed on the mention cards.
+    local_ts = Mention.created_at + timedelta(minutes=off)
     q = (
         select(
-            func.date_trunc("day", Mention.created_at).label("day"),
+            func.date_trunc("day", local_ts).label("day"),
             Mention.sentiment, func.count().label("cnt"),
         )
         .where(Mention.created_at.between(since, until)).where(Mention.is_spam == False)
@@ -148,8 +157,8 @@ async def get_trend(
     # days that happen to have mentions, so a "14 days" chart rendered just 3
     # bars and looked like the range selector was broken.
     result: dict = {}
-    start = since.date()
-    end = until.date()
+    start = (since + timedelta(minutes=off)).date()
+    end = (until + timedelta(minutes=off)).date()
     cur = start
     while cur <= end:
         key = cur.strftime("%Y-%m-%d")
@@ -172,9 +181,10 @@ async def get_user_analytics(
     days: int = Query(30, ge=1, le=90),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
+    tz_offset: Optional[int] = Query(None, description="Client minutes east of UTC, e.g. 420 for Bangkok"),
     db: AsyncSession = Depends(get_db),
 ):
-    since, until = resolve_range(days, date_from, date_to)
+    since, until = resolve_range(days, date_from, date_to, tz_offset)
     mentions = (await db.execute(
         select(Mention).where(Mention.created_at.between(since, until), Mention.is_spam == False)
     )).scalars().all()
@@ -230,9 +240,10 @@ async def get_topics(
     days: int = Query(30, ge=1, le=90),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
+    tz_offset: Optional[int] = Query(None, description="Client minutes east of UTC, e.g. 420 for Bangkok"),
     db: AsyncSession = Depends(get_db),
 ):
-    since, until = resolve_range(days, date_from, date_to)
+    since, until = resolve_range(days, date_from, date_to, tz_offset)
     mentions = (await db.execute(
         select(Mention).where(Mention.created_at.between(since, until), Mention.is_spam == False)
     )).scalars().all()
@@ -267,9 +278,10 @@ async def get_competitors(
     days: int = Query(30, ge=1, le=90),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
+    tz_offset: Optional[int] = Query(None, description="Client minutes east of UTC, e.g. 420 for Bangkok"),
     db: AsyncSession = Depends(get_db),
 ):
-    since, until = resolve_range(days, date_from, date_to)
+    since, until = resolve_range(days, date_from, date_to, tz_offset)
     keywords = (await db.execute(select(Keyword).where(Keyword.is_active == True))).scalars().all()
     kw_set = {kw.word for kw in keywords}
 

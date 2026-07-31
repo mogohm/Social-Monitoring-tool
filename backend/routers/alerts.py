@@ -50,26 +50,22 @@ async def list_alerts():
 
 @router.post("", status_code=201)
 async def create_alert(body: AlertBody):
-    try:
-        async with AsyncSessionLocal() as db:
-            row = Alert(
-                name=body.name,
-                condition_type=body.condition_type,
-                threshold=body.threshold,
-                keywords=body.keywords or [],
-                category_filter=body.category_filter or [],
-                channels=body.channels or [],
-                email_recipients=body.email_recipients or [],
-                notify_email=True,
-                is_active=body.is_active,
-            )
-            db.add(row)
-            await db.commit()
-            await db.refresh(row)
-            return _serialize(row)
-    except Exception as e:
-        import traceback
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+    async with AsyncSessionLocal() as db:
+        row = Alert(
+            name=body.name,
+            condition_type=body.condition_type,
+            threshold=body.threshold,
+            keywords=body.keywords or [],
+            category_filter=body.category_filter or [],
+            channels=body.channels or [],
+            email_recipients=body.email_recipients or [],
+            notify_email=True,
+            is_active=body.is_active,
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return _serialize(row)
 
 
 @router.patch("/{alert_id}")

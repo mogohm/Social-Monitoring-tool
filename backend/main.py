@@ -40,6 +40,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS condition_type   VARCHAR(50) DEFAULT 'keyword_match'",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS threshold        FLOAT",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS notify_email     BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE alerts ALTER COLUMN notify_line     SET DEFAULT FALSE",
+            "ALTER TABLE alerts ALTER COLUMN notify_telegram SET DEFAULT FALSE",
         ]:
             try:
                 await conn.execute(text(col_sql))

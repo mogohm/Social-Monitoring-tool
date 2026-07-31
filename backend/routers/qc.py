@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from backend.models.database import get_db
 from backend.models.models import AdminChat
+from backend.utils.timefmt import utc_iso
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/qc", tags=["qc"])
@@ -112,7 +113,7 @@ async def list_chats(
             "politeness_score": c.politeness_score,
             "has_forbidden_words": c.has_forbidden_words,
             "qc_reviewed": c.qc_reviewed,
-            "created_at": c.created_at.isoformat(),
+            "created_at": utc_iso(c.created_at),
         }
         for c in rows
     ]

@@ -5,6 +5,7 @@ from typing import Optional
 from datetime import datetime
 from backend.models.database import get_db
 from backend.models.models import MonitoredChannel
+from backend.utils.timefmt import utc_iso
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/channels", tags=["channels"])
@@ -103,6 +104,6 @@ def _ser(c: MonitoredChannel) -> dict:
         "display_name": c.display_name,
         "webhook_url": c.webhook_url,
         "is_active": c.is_active,
-        "last_synced": c.last_synced.isoformat() if c.last_synced else None,
-        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "last_synced": utc_iso(c.last_synced) if c.last_synced else None,
+        "created_at": utc_iso(c.created_at) if c.created_at else None,
     }

@@ -6,6 +6,7 @@ from typing import Optional
 from backend.models.database import get_db
 from backend.models.models import Mention, Keyword
 from backend.services.ai_service import analyze_text
+from backend.utils.timefmt import utc_iso
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/mentions", tags=["mentions"])
@@ -190,7 +191,7 @@ async def get_user_analytics(
             "channels": sorted(u["channels"]),
             "avg_risk": avg_risk,
             "dominant_sentiment": dominant,
-            "last_seen": u["last_seen"].isoformat() if u["last_seen"] else None,
+            "last_seen": utc_iso(u["last_seen"]) if u["last_seen"] else None,
         })
 
     result.sort(key=lambda x: x["count"], reverse=True)
@@ -349,6 +350,6 @@ def _serialize(m: Mention) -> dict:
         "suggested_action": m.suggested_action,
         "tags": m.tags or [],
         "is_reviewed": m.is_reviewed,
-        "published_at": m.published_at.isoformat() if m.published_at else None,
-        "created_at": m.created_at.isoformat() if m.created_at else None,
+        "published_at": utc_iso(m.published_at) if m.published_at else None,
+        "created_at": utc_iso(m.created_at) if m.created_at else None,
     }

@@ -4,6 +4,7 @@ from sqlalchemy import select, func
 from typing import Optional
 from backend.models.database import get_db
 from backend.models.models import Keyword, Mention
+from backend.utils.timefmt import utc_iso
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/keywords", tags=["keywords"])
@@ -101,5 +102,5 @@ def _ser(k: Keyword) -> dict:
         "is_negative": k.is_negative,
         "is_active": k.is_active,
         "match_count": k.match_count,
-        "created_at": k.created_at.isoformat() if k.created_at else None,
+        "created_at": utc_iso(k.created_at) if k.created_at else None,
     }

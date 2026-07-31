@@ -6,6 +6,7 @@ import os
 
 from backend.models.database import AsyncSessionLocal
 from backend.models.models import ScraperConfig
+from backend.utils.timefmt import utc_iso
 from sqlalchemy import select
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -38,10 +39,10 @@ def _serialize(row: ScraperConfig) -> dict:
         "name": row.name,
         "enabled": row.enabled,
         "interval_minutes": row.interval_minutes,
-        "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
+        "last_run_at": utc_iso(row.last_run_at) if row.last_run_at else None,
         "last_posts_count": row.last_posts_count,
         "last_duration_seconds": row.last_duration_seconds,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "updated_at": utc_iso(row.updated_at) if row.updated_at else None,
     }
 
 
@@ -88,4 +89,4 @@ async def scraper_heartbeat(body: HeartbeatPayload):
         row.last_run_at = datetime.utcnow()
         row.updated_at = datetime.utcnow()
         await db.commit()
-        return {"status": "ok", "last_run_at": row.last_run_at.isoformat()}
+        return {"status": "ok", "last_run_at": utc_iso(row.last_run_at)}

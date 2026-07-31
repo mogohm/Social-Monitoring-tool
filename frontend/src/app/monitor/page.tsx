@@ -1,7 +1,9 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
-import { Activity, Clock, Database, RefreshCw, Wifi, WifiOff, AlertTriangle, CheckCircle, TrendingUp } from "lucide-react";
+import { getAdminToken, onAdminTokenChange } from "@/lib/adminToken";
+import { Activity, Clock, Database, RefreshCw, Wifi, WifiOff, TrendingUp, KeyRound } from "lucide-react";
 
 interface ScraperStatus {
   enabled: boolean;
@@ -65,30 +67,50 @@ export default function MonitorPage() {
   const prevIds = useRef<Set<number>>(new Set());
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
 
-  const ADMIN_TOKEN =
-    typeof window !== "undefined" ? sessionStorage.getItem("adminToken") ?? "" : "";
+  const [adminToken, setToken] = useState("");
+  const [needsToken, setNeedsToken] = useState(false);
 
-  async function load() {
-    try {
-      const [scraperRes, mentionsRes, statsRes] = await Promise.all([
-        api.get("/api/admin/scraper", { headers: { "X-Admin-Token": ADMIN_TOKEN } }),
-        api.get("/api/mentions", { params: { limit: 20, days: 1 } }),
-        api.get("/api/mentions/stats?days=1"),
-      ]);
-      setScraper(scraperRes.data);
-      const incoming: Mention[] = mentionsRes.data;
+  useEffect(() => {
+    setToken(getAdminToken());
+    return onAdminTokenChange(setToken);
+  }, []);
+
+  const load = useCallback(async () => {
+    // allSettled, not all: only /api/admin/scraper needs the admin token, and
+    // letting its 401 reject the batch used to blank the whole page in any tab
+    // that hadn't signed in — mentions and stats are public and should show.
+    const [scraperRes, mentionsRes, statsRes] = await Promise.allSettled([
+      api.get("/api/admin/scraper", { headers: { "X-Admin-Token": adminToken } }),
+      api.get("/api/mentions", { params: { limit: 20, days: 1 } }),
+      api.get("/api/mentions/stats?days=1"),
+    ]);
+
+    if (scraperRes.status === "fulfilled") {
+      setScraper(scraperRes.value.data);
+      setNeedsToken(false);
+    } else {
+      setScraper(null);
+      setNeedsToken(true);
+    }
+
+    if (mentionsRes.status === "fulfilled") {
+      const incoming: Mention[] = mentionsRes.value.data;
       const fresh = new Set(incoming.map((m) => m.id).filter((id) => !prevIds.current.has(id)));
       setNewIds(fresh);
       prevIds.current = new Set(incoming.map((m) => m.id));
       setMentions(incoming);
-      setTotalToday(statsRes.data?.total_mentions ?? 0);
-      setOnline(true);
-      setLastRefresh(new Date());
       setTimeout(() => setNewIds(new Set()), 3000);
-    } catch {
-      setOnline(false);
     }
-  }
+
+    if (statsRes.status === "fulfilled") {
+      setTotalToday(statsRes.value.data?.total_mentions ?? 0);
+    }
+
+    // Offline only when even the public endpoints failed — a missing admin
+    // token is a sign-in problem, not a connectivity one.
+    setOnline(mentionsRes.status === "fulfilled" || statsRes.status === "fulfilled");
+    setLastRefresh(new Date());
+  }, [adminToken]);
 
   useEffect(() => {
     load();
@@ -98,7 +120,7 @@ export default function MonitorPage() {
       clearInterval(dataInterval);
       clearInterval(tickInterval);
     };
-  }, []);
+  }, [load]);
 
   const isRunning = scraper?.enabled && scraper?.last_run_at
     ? (Date.now() - new Date(scraper.last_run_at).getTime()) < (scraper.interval_minutes + 2) * 60 * 1000
@@ -130,6 +152,24 @@ export default function MonitorPage() {
           <span className="text-xs text-gray-400">อัพเดทล่าสุด {lastRefresh.toLocaleTimeString("th-TH")}</span>
         </div>
       </div>
+
+      {/* Admin sign-in notice — the scraper cards need the admin token, which
+          is per-browser; without it those three cards stay empty. */}
+      {needsToken && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <KeyRound size={16} className="text-amber-500 shrink-0" />
+          <p className="text-sm text-amber-200/90 flex-1">
+            ยังไม่ได้ใส่ Admin Token ในเบราว์เซอร์นี้ — สถานะ scraper จึงแสดงไม่ได้
+            (ฟีดโพสต์ด้านล่างยังใช้งานได้ตามปกติ)
+          </p>
+          <Link
+            href="/admin"
+            className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-amber-950 hover:bg-amber-400 transition-colors"
+          >
+            ใส่ Token
+          </Link>
+        </div>
+      )}
 
       {/* Scraper Status Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

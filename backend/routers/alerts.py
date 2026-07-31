@@ -6,6 +6,7 @@ import os
 from backend.models.database import AsyncSessionLocal
 from backend.models.models import Alert, AlertLog, Mention
 from backend.services.email_service import send_alert_email, send_alert_emails
+from backend.utils.timefmt import utc_iso
 from sqlalchemy import select, desc
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -36,7 +37,7 @@ def _serialize(row: Alert) -> dict:
         "email_recipients": row.email_recipients or [],
         "notify_email": row.notify_email,
         "is_active": row.is_active,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_at": utc_iso(row.created_at) if row.created_at else None,
     }
 
 
@@ -45,7 +46,7 @@ def _serialize_log(row: AlertLog) -> dict:
         "id": row.id,
         "alert_id": row.alert_id,
         "mention_id": row.mention_id,
-        "sent_at": row.sent_at.isoformat() if row.sent_at else None,
+        "sent_at": utc_iso(row.sent_at) if row.sent_at else None,
         "recipients": row.recipients or [],
         "channel": row.channel,
         "author": row.author,

@@ -5,6 +5,7 @@ import {
   Shield, RefreshCw, Play, Pause, Clock, Activity,
   BarChart2, AlertCircle, LogOut,
 } from "lucide-react";
+import { getAdminToken, setAdminToken, clearAdminToken, onAdminTokenChange } from "@/lib/adminToken";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -40,10 +41,11 @@ export default function AdminPage() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [saveMsg, setSaveMsg] = useState("");
 
-  // Restore token from sessionStorage on mount
+  // Restore token on mount, and follow sign-in/out from other tabs
   useEffect(() => {
-    const stored = sessionStorage.getItem("adminToken");
+    const stored = getAdminToken();
     if (stored) setToken(stored);
+    return onAdminTokenChange(setToken);
   }, []);
 
   const fetchConfig = useCallback(async (tok: string) => {
@@ -79,7 +81,7 @@ export default function AdminPage() {
         headers: { "X-Admin-Token": tokenInput },
       });
       if (res.ok) {
-        sessionStorage.setItem("adminToken", tokenInput);
+        setAdminToken(tokenInput);
         setToken(tokenInput);
       } else {
         setAuthError("Invalid token — please try again.");
@@ -114,7 +116,7 @@ export default function AdminPage() {
   }
 
   function handleSignOut() {
-    sessionStorage.removeItem("adminToken");
+    clearAdminToken();
     setToken("");
     setConfig(null);
   }

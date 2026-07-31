@@ -1,24 +1,37 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { fetchTrend, fetchStats } from "@/lib/api";
+import DateRangePicker from "@/components/DateRangePicker";
+import { DateRange, rangeLabel } from "@/lib/dateRange";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 export default function SentimentPage() {
   const [trend,   setTrend]   = useState<{ date: string; positive: number; neutral: number; negative: number }[]>([]);
   const [stats,   setStats]   = useState<Record<string, unknown> | null>(null);
+  const [range,   setRange]   = useState<DateRange>({ days: 14 });
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
-  useEffect(() => {
-    fetchTrend(14).then(setTrend).catch(() => {});
-    fetchStats(14).then(setStats).catch(() => {});
-  }, []);
+
+  const reload = useCallback(() => {
+    fetchTrend(range).then(setTrend).catch(() => {});
+    fetchStats(range).then(setStats).catch(() => {});
+  }, [range]);
+
+  useEffect(() => { reload(); }, [reload]);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Sentiment Analysis</h1>
-        <p className="text-sm font-medium text-gray-600 mt-0.5">14-day sentiment breakdown</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Sentiment Analysis</h1>
+          {/* Label follows the selected range — it used to say "14-day" no
+              matter what, while the chart drew only the days that had data. */}
+          <p className="text-sm font-medium text-gray-600 mt-0.5">
+            สรุป sentiment · {rangeLabel(range)}
+          </p>
+        </div>
+        <DateRangePicker value={range} onChange={setRange} onRefresh={reload} />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -35,7 +48,9 @@ export default function SentimentPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-        <h2 className="text-base font-bold text-gray-900 mb-5">Sentiment Over Time (14 days)</h2>
+        <h2 className="text-base font-bold text-gray-900 mb-5">
+          Sentiment Over Time · {rangeLabel(range)}
+        </h2>
         {mounted ? (
           <ResponsiveContainer width="100%" height={340}>
             <BarChart data={trend} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>

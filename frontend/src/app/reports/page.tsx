@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { fetchStats, fetchMentions } from "@/lib/api";
 import { FileText, TrendingUp, MessageCircle, Heart, AlertTriangle, Download, RefreshCw } from "lucide-react";
+import DateRangePicker from "@/components/DateRangePicker";
+import { DateRange, rangeParams, rangeLabel, resolvedSpan } from "@/lib/dateRange";
 
 interface Stats {
   total_mentions: number;
@@ -50,15 +52,15 @@ const TEMPLATES = [
 export default function ReportsPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [mentions, setMentions] = useState<Mention[]>([]);
-  const [days, setDays] = useState(30);
+  const [range, setRange] = useState<DateRange>({ days: 30 });
   const [loading, setLoading] = useState(true);
 
-  async function load(d: number) {
+  async function load(r: DateRange) {
     setLoading(true);
     try {
       const [s, m] = await Promise.all([
-        fetchStats(d),
-        fetchMentions({ days: d, limit: 5 }),
+        fetchStats(r),
+        fetchMentions({ ...rangeParams(r), limit: 5 }),
       ]);
       setStats(s);
       setMentions(m);
@@ -69,7 +71,7 @@ export default function ReportsPage() {
     }
   }
 
-  useEffect(() => { load(days); }, [days]);
+  useEffect(() => { load(range); }, [range]);
 
   function exportCSV() {
     if (!mentions.length) return;
@@ -81,7 +83,8 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `socialeye_report_${days}d.csv`;
+    const span = resolvedSpan(range);
+    a.download = `socialeye_report_${span.from}_${span.to}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -96,21 +99,8 @@ export default function ReportsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
           <p className="text-sm font-medium text-gray-500 mt-0.5">Live stats &amp; exportable report templates</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl border-2 border-gray-200 overflow-hidden">
-            {[7, 14, 30, 90].map((d) => (
-              <button
-                key={d}
-                onClick={() => setDays(d)}
-                className={`px-3 py-1.5 text-xs font-bold transition-colors ${days === d ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
-              >
-                {d}d
-              </button>
-            ))}
-          </div>
-          <button onClick={() => load(days)} className="p-2 border-2 border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-            <RefreshCw size={14} className="text-gray-500" />
-          </button>
+        <div className="flex items-start gap-2">
+          <DateRangePicker value={range} onChange={setRange} onRefresh={() => load(range)} />
           <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-colors">
             <Download size={13} />
             Export CSV
@@ -133,7 +123,7 @@ export default function ReportsPage() {
               <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Total Mentions</span>
             </div>
             <p className="text-3xl font-extrabold text-gray-900">{stats.total_mentions.toLocaleString()}</p>
-            <p className="text-xs font-semibold text-gray-400 mt-1">last {days} days</p>
+            <p className="text-xs font-semibold text-gray-400 mt-1">{rangeLabel(range)}</p>
           </div>
 
           <div className="bg-white rounded-xl border-2 border-gray-200 p-5">
@@ -224,7 +214,7 @@ export default function ReportsPage() {
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-5">
           <h2 className="text-sm font-extrabold text-blue-900 mb-2">Auto-Generated Summary</h2>
           <p className="text-sm font-semibold text-blue-800 leading-relaxed">
-            In the past <strong>{days} days</strong>, SocialEye tracked{" "}
+            In the past <strong>{rangeLabel(range)}</strong>, SocialEye tracked{" "}
             <strong>{stats.total_mentions.toLocaleString()} mentions</strong> across{" "}
             <strong>{stats.channels.length} channels</strong>.{" "}
             Sentiment is <strong>{stats.net_sentiment >= 0 ? "net positive" : "net negative"}</strong> at{" "}

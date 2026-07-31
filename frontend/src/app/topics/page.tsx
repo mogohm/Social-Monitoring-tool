@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { fetchTopics } from "@/lib/api";
 import { TrendingUp, RefreshCw, AlertCircle } from "lucide-react";
+import DateRangePicker from "@/components/DateRangePicker";
+import { DateRange } from "@/lib/dateRange";
 
 interface Topic {
   topic: string;
@@ -24,19 +26,18 @@ const SENT_COLORS: Record<string, string> = {
   negative: "text-red-700 bg-red-100",
 };
 
-const DAYS_OPTIONS = [7, 14, 30, 90];
 
 export default function TopicsPage() {
   const [topics, setTopics] = useState<Topic[]>([]);
-  const [days, setDays] = useState(30);
+  const [range, setRange] = useState<DateRange>({ days: 30 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function load(d: number) {
+  async function load(r: DateRange) {
     setLoading(true);
     setError("");
     try {
-      const data = await fetchTopics(d);
+      const data = await fetchTopics(r);
       setTopics(data);
     } catch {
       setError("Could not load topics — check backend connection.");
@@ -45,7 +46,7 @@ export default function TopicsPage() {
     }
   }
 
-  useEffect(() => { load(days); }, [days]);
+  useEffect(() => { load(range); }, [range]);
 
   const maxCount = Math.max(...topics.map((t) => t.count), 1);
 
@@ -56,25 +57,7 @@ export default function TopicsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Topics &amp; Trends</h1>
           <p className="text-sm font-medium text-gray-500 mt-0.5">AI-classified topics from monitored mentions</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl border-2 border-gray-200 overflow-hidden">
-            {DAYS_OPTIONS.map((d) => (
-              <button
-                key={d}
-                onClick={() => setDays(d)}
-                className={`px-3 py-1.5 text-xs font-bold transition-colors ${days === d ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
-              >
-                {d}d
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => load(days)}
-            className="p-2 border-2 border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw size={14} className="text-gray-500" />
-          </button>
-        </div>
+        <DateRangePicker value={range} onChange={setRange} onRefresh={() => load(range)} />
       </div>
 
       {error && (

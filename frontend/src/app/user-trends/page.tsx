@@ -6,6 +6,8 @@ import {
   Users, AlertTriangle, RefreshCw, Shield, ShieldOff,
   TrendingUp, MessageCircle, Search,
 } from "lucide-react";
+import DateRangePicker from "@/components/DateRangePicker";
+import { DateRange } from "@/lib/dateRange";
 
 interface UserStat {
   author: string;
@@ -40,7 +42,6 @@ const CHANNEL_LABELS: Record<string, string> = {
   line_oa: "LINE", news: "News", webboard: "Web",
 };
 
-const DAYS_OPTIONS = [7, 14, 30, 90];
 const WATCHLIST_KEY = "socialeye_watchlist";
 
 function getRiskColor(risk: number) {
@@ -59,7 +60,7 @@ function timeAgo(iso: string | null) {
 
 export default function UserTrendsPage() {
   const [users, setUsers]         = useState<UserStat[]>([]);
-  const [days, setDays]           = useState(30);
+  const [range, setRange]         = useState<DateRange>({ days: 30 });
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState("");
   const [search, setSearch]       = useState("");
@@ -86,11 +87,11 @@ export default function UserTrendsPage() {
     saveWatchlist(next);
   }
 
-  const load = useCallback(async (d: number) => {
+  const load = useCallback(async (r: DateRange) => {
     setLoading(true);
     setError("");
     try {
-      const data = await fetchUsers(d);
+      const data = await fetchUsers(r);
       setUsers(data);
     } catch {
       setError("โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ backend");
@@ -99,7 +100,7 @@ export default function UserTrendsPage() {
     }
   }, []);
 
-  useEffect(() => { load(days); }, [days, load]);
+  useEffect(() => { load(range); }, [range, load]);
 
   const filtered = users
     .filter((u) => {
@@ -121,22 +122,7 @@ export default function UserTrendsPage() {
           <h1 className="text-2xl font-bold text-gray-900">User Trends</h1>
           <p className="text-sm font-medium text-gray-500 mt-0.5">วิเคราะห์ผู้ใช้งาน · เฝ้าระวัง · ติดตามแนวโน้ม</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl border-2 border-gray-200 overflow-hidden">
-            {DAYS_OPTIONS.map((d) => (
-              <button
-                key={d}
-                onClick={() => setDays(d)}
-                className={`px-3 py-1.5 text-xs font-bold transition-colors ${days === d ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
-              >
-                {d}d
-              </button>
-            ))}
-          </div>
-          <button onClick={() => load(days)} className="p-2 border-2 border-gray-200 rounded-xl hover:bg-gray-50">
-            <RefreshCw size={14} className="text-gray-500" />
-          </button>
-        </div>
+        <DateRangePicker value={range} onChange={setRange} onRefresh={() => load(range)} />
       </div>
 
       {/* Watchlist alert banner */}

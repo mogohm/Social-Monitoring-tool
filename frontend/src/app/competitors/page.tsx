@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { fetchCompetitors } from "@/lib/api";
 import { BarChart2, RefreshCw, AlertCircle } from "lucide-react";
+import DateRangePicker from "@/components/DateRangePicker";
+import { DateRange } from "@/lib/dateRange";
 
 interface Competitor {
   keyword: string;
@@ -16,7 +18,6 @@ interface Competitor {
   sov_pct: number;
 }
 
-const DAYS_OPTIONS = [7, 14, 30, 90];
 
 const SOV_COLORS = [
   "#3b82f6", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b",
@@ -25,15 +26,15 @@ const SOV_COLORS = [
 
 export default function CompetitorsPage() {
   const [rows, setRows] = useState<Competitor[]>([]);
-  const [days, setDays] = useState(30);
+  const [range, setRange] = useState<DateRange>({ days: 30 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function load(d: number) {
+  async function load(r: DateRange) {
     setLoading(true);
     setError("");
     try {
-      const data = await fetchCompetitors(d);
+      const data = await fetchCompetitors(r);
       setRows(data);
     } catch {
       setError("Could not load data — check backend connection.");
@@ -42,7 +43,7 @@ export default function CompetitorsPage() {
     }
   }
 
-  useEffect(() => { load(days); }, [days]);
+  useEffect(() => { load(range); }, [range]);
 
   const maxCount = Math.max(...rows.map((r) => r.count), 1);
 
@@ -53,25 +54,7 @@ export default function CompetitorsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Keyword Share of Voice</h1>
           <p className="text-sm font-medium text-gray-500 mt-0.5">Mention distribution across tracked keywords</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl border-2 border-gray-200 overflow-hidden">
-            {DAYS_OPTIONS.map((d) => (
-              <button
-                key={d}
-                onClick={() => setDays(d)}
-                className={`px-3 py-1.5 text-xs font-bold transition-colors ${days === d ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
-              >
-                {d}d
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => load(days)}
-            className="p-2 border-2 border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw size={14} className="text-gray-500" />
-          </button>
-        </div>
+        <DateRangePicker value={range} onChange={setRange} onRefresh={() => load(range)} />
       </div>
 
       {error && (

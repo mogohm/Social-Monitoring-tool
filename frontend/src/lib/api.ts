@@ -1,4 +1,9 @@
 import axios from "axios";
+import { DateRange, rangeQuery } from "./dateRange";
+
+/** Accepts a plain day count (legacy callers) or a DateRange. */
+type Range = number | DateRange;
+const qs = (r: Range) => rangeQuery(typeof r === "number" ? { days: r } : r);
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -8,8 +13,8 @@ const API_URL =
 
 export const api = axios.create({ baseURL: API_URL });
 
-export async function fetchStats(days = 7) {
-  const { data } = await api.get(`/api/mentions/stats?days=${days}`);
+export async function fetchStats(range: Range = 7) {
+  const { data } = await api.get(`/api/mentions/stats?${qs(range)}`);
   return data;
 }
 
@@ -18,13 +23,13 @@ export async function fetchMentions(params: Record<string, string | number> = {}
   return data;
 }
 
-export async function fetchTrend(days = 7) {
-  const { data } = await api.get(`/api/mentions/trend?days=${days}`);
+export async function fetchTrend(range: Range = 7) {
+  const { data } = await api.get(`/api/mentions/trend?${qs(range)}`);
   return data;
 }
 
-export async function fetchQCScoreboard(days = 7) {
-  const { data } = await api.get(`/api/qc/scoreboard?days=${days}`);
+export async function fetchQCScoreboard(range: Range = 7) {
+  const { data } = await api.get(`/api/qc/scoreboard?${qs(range)}`);
   return data;
 }
 
@@ -72,17 +77,17 @@ export async function fetchMentionDetail(id: number) {
   return data;
 }
 
-export async function fetchTopics(days = 30) {
-  const { data } = await api.get(`/api/mentions/topics?days=${days}`);
+export async function fetchTopics(range: Range = 30) {
+  const { data } = await api.get(`/api/mentions/topics?${qs(range)}`);
   return data;
 }
 
-export async function fetchCompetitors(days = 30) {
-  const { data } = await api.get(`/api/mentions/competitors?days=${days}`);
+export async function fetchCompetitors(range: Range = 30) {
+  const { data } = await api.get(`/api/mentions/competitors?${qs(range)}`);
   return data;
 }
 
-export async function fetchUsers(days = 30) {
-  const { data } = await api.get(`/api/mentions/users?days=${days}`);
+export async function fetchUsers(range: Range = 30) {
+  const { data } = await api.get(`/api/mentions/users?${qs(range)}`);
   return data;
 }

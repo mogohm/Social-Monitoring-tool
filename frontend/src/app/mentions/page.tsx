@@ -5,6 +5,8 @@ import { fetchMentions } from "@/lib/api";
 import { api } from "@/lib/api";
 import MentionCard, { type MentionData } from "@/components/MentionCard";
 import MentionDetail from "@/components/MentionDetail";
+import DateRangePicker from "@/components/DateRangePicker";
+import { DateRange, rangeParams } from "@/lib/dateRange";
 import { RefreshCw, Tag } from "lucide-react";
 
 const CHANNELS   = ["", "facebook", "facebook_comment", "twitter", "tiktok", "youtube", "line_oa", "instagram", "pantip", "news"];
@@ -22,18 +24,18 @@ function MentionsContent() {
   const [sentiment, setSentiment] = useState("");
   const [priority,  setPriority]  = useState("");
   const [keyword,   setKeyword]   = useState(searchParams.get("keyword") ?? "");
-  const [days,      setDays]      = useState(7);
+  const [range,     setRange]     = useState<DateRange>({ days: 7 });
   const [detailId,  setDetailId]  = useState<number | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
-    const params: Record<string, string | number> = { days, limit: 50 };
+    const params: Record<string, string | number> = { ...rangeParams(range), limit: 50 };
     if (channel)   params.channel   = channel;
     if (sentiment) params.sentiment = sentiment;
     if (priority)  params.priority  = priority;
     if (keyword)   params.keyword   = keyword;
     fetchMentions(params).then((d) => setMentions(d)).finally(() => setLoading(false));
-  }, [channel, sentiment, priority, keyword, days]);
+  }, [channel, sentiment, priority, keyword, range]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -67,11 +69,11 @@ function MentionsContent() {
             <select className={selectClass} value={priority}  onChange={(e) => setPriority(e.target.value)}>
               {PRIORITIES.map((p) => <option key={p} value={p}>{p || "All Priorities"}</option>)}
             </select>
-            <select className={selectClass} value={days} onChange={(e) => setDays(Number(e.target.value))}>
-              <option value={1}>24 hours</option>
-              <option value={7}>7 days</option>
-              <option value={30}>30 days</option>
-            </select>
+            <DateRangePicker
+              value={range}
+              onChange={setRange}
+              presets={[{ days: 1, label: "24 ชม." }, { days: 7, label: "7 วัน" }, { days: 30, label: "30 วัน" }, { days: 90, label: "90 วัน" }]}
+            />
           </div>
 
           {/* Keyword quick-filter chips */}

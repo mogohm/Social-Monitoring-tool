@@ -7,6 +7,7 @@ from backend.models.database import get_db
 from backend.models.models import Mention, Keyword
 from backend.services.ai_service import analyze_text
 from backend.utils.timefmt import utc_iso
+from backend.utils.daterange import resolve_range
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/mentions", tags=["mentions"])
@@ -48,12 +49,14 @@ async def list_mentions(
     keyword: Optional[str] = None,
     project_id: Optional[int] = None,
     days: int = Query(7, ge=1, le=90),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
     limit: int = Query(50, le=200),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    since = datetime.utcnow() - timedelta(days=days)
-    q = select(Mention).where(Mention.created_at >= since).where(Mention.is_spam == False)
+    since, until = resolve_range(days, date_from, date_to)
+    q = select(Mention).where(Mention.created_at.between(since, until)).where(Mention.is_spam == False)
     if channel:
         q = q.where(Mention.channel == channel)
     if sentiment:
@@ -72,27 +75,29 @@ async def list_mentions(
 @router.get("/stats")
 async def get_stats(
     days: int = Query(7, ge=1, le=90),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
     project_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    since = datetime.utcnow() - timedelta(days=days)
-    base = select(Mention).where(Mention.created_at >= since).where(Mention.is_spam == False)
+    since, until = resolve_range(days, date_from, date_to)
+    base = select(Mention).where(Mention.created_at.between(since, until)).where(Mention.is_spam == False)
     if project_id:
         base = base.where(Mention.project_id == project_id)
 
     total_q = select(func.count()).select_from(base.subquery())
     sentiment_q = (
         select(Mention.sentiment, func.count().label("cnt"))
-        .where(Mention.created_at >= since).where(Mention.is_spam == False)
+        .where(Mention.created_at.between(since, until)).where(Mention.is_spam == False)
         .group_by(Mention.sentiment)
     )
     channel_q = (
         select(Mention.channel, func.count().label("cnt"))
-        .where(Mention.created_at >= since)
+        .where(Mention.created_at.between(since, until))
         .group_by(Mention.channel).order_by(desc("cnt"))
     )
-    risk_q      = select(func.avg(Mention.risk_score)).where(Mention.created_at >= since)
-    engagement_q = select(func.sum(Mention.engagement)).where(Mention.created_at >= since)
+    risk_q      = select(func.avg(Mention.risk_score)).where(Mention.created_at.between(since, until))
+    engagement_q = select(func.sum(Mention.engagement)).where(Mention.created_at.between(since, until))
 
     total            = (await db.execute(total_q)).scalar() or 0
     sentiment_rows   = (await db.execute(sentiment_q)).all()
@@ -121,35 +126,54 @@ async def get_stats(
 @router.get("/trend")
 async def get_trend(
     days: int = Query(7, ge=1, le=90),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
     db: AsyncSession = Depends(get_db),
 ):
-    since = datetime.utcnow() - timedelta(days=days)
+    since, until = resolve_range(days, date_from, date_to)
     q = (
         select(
             func.date_trunc("day", Mention.created_at).label("day"),
             Mention.sentiment, func.count().label("cnt"),
         )
-        .where(Mention.created_at >= since).where(Mention.is_spam == False)
+        .where(Mention.created_at.between(since, until)).where(Mention.is_spam == False)
         .group_by("day", Mention.sentiment).order_by("day")
     )
     rows = (await db.execute(q)).all()
+
+    # Seed every day in the range at zero first. Grouping alone only returns
+    # days that happen to have mentions, so a "14 days" chart rendered just 3
+    # bars and looked like the range selector was broken.
     result: dict = {}
+    start = since.date()
+    end = until.date()
+    cur = start
+    while cur <= end:
+        key = cur.strftime("%Y-%m-%d")
+        result[key] = {"date": key, "positive": 0, "neutral": 0, "negative": 0}
+        cur += timedelta(days=1)
+
     for r in rows:
-        day_str = r.day.strftime("%Y-%m-%d") if r.day else "unknown"
+        if not r.day:
+            continue
+        day_str = r.day.strftime("%Y-%m-%d")
         if day_str not in result:
             result[day_str] = {"date": day_str, "positive": 0, "neutral": 0, "negative": 0}
         result[day_str][r.sentiment or "neutral"] = r.cnt
-    return list(result.values())
+
+    return [result[k] for k in sorted(result)]
 
 
 @router.get("/users")
 async def get_user_analytics(
     days: int = Query(30, ge=1, le=90),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
     db: AsyncSession = Depends(get_db),
 ):
-    since = datetime.utcnow() - timedelta(days=days)
+    since, until = resolve_range(days, date_from, date_to)
     mentions = (await db.execute(
-        select(Mention).where(Mention.created_at >= since, Mention.is_spam == False)
+        select(Mention).where(Mention.created_at.between(since, until), Mention.is_spam == False)
     )).scalars().all()
 
     users: dict[str, dict] = {}
@@ -201,11 +225,13 @@ async def get_user_analytics(
 @router.get("/topics")
 async def get_topics(
     days: int = Query(30, ge=1, le=90),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
     db: AsyncSession = Depends(get_db),
 ):
-    since = datetime.utcnow() - timedelta(days=days)
+    since, until = resolve_range(days, date_from, date_to)
     mentions = (await db.execute(
-        select(Mention).where(Mention.created_at >= since, Mention.is_spam == False)
+        select(Mention).where(Mention.created_at.between(since, until), Mention.is_spam == False)
     )).scalars().all()
 
     topics: dict[str, dict] = {}
@@ -236,14 +262,16 @@ async def get_topics(
 @router.get("/competitors")
 async def get_competitors(
     days: int = Query(30, ge=1, le=90),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD; overrides days"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD; inclusive"),
     db: AsyncSession = Depends(get_db),
 ):
-    since = datetime.utcnow() - timedelta(days=days)
+    since, until = resolve_range(days, date_from, date_to)
     keywords = (await db.execute(select(Keyword).where(Keyword.is_active == True))).scalars().all()
     kw_set = {kw.word for kw in keywords}
 
     mentions = (await db.execute(
-        select(Mention).where(Mention.created_at >= since, Mention.is_spam == False)
+        select(Mention).where(Mention.created_at.between(since, until), Mention.is_spam == False)
     )).scalars().all()
 
     stats: dict[str, dict] = {

@@ -1,7 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { fetchStats, fetchTrend, fetchKeywordStats } from "@/lib/api";
 import KPICard from "@/components/KPICard";
+import DateRangePicker from "@/components/DateRangePicker";
+import { DateRange } from "@/lib/dateRange";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, ResponsiveContainer, Legend,
@@ -30,16 +32,18 @@ export default function OverviewPage() {
   const [stats,   setStats]   = useState<Record<string, number | { channel: string; count: number }[]> | null>(null);
   const [trend,   setTrend]   = useState<{ date: string; positive: number; neutral: number; negative: number }[]>([]);
   const [kwStats, setKwStats] = useState<KeywordStat[]>([]);
-  const [days,    setDays]    = useState(7);
+  const [range,   setRange]   = useState<DateRange>({ days: 7 });
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
-  useEffect(() => {
-    fetchStats(days).then(setStats).catch(() => {});
-    fetchTrend(days).then(setTrend).catch(() => {});
+  const reload = useCallback(() => {
+    fetchStats(range).then(setStats).catch(() => {});
+    fetchTrend(range).then(setTrend).catch(() => {});
     fetchKeywordStats().then(setKwStats).catch(() => {});
-  }, [days]);
+  }, [range]);
+
+  useEffect(() => { reload(); }, [reload]);
 
   const sentimentPie = stats
     ? [
@@ -56,15 +60,12 @@ export default function OverviewPage() {
           <h1 className="text-2xl font-bold text-gray-900">Executive Overview</h1>
           <p className="text-sm font-medium text-gray-600 mt-0.5">Real-time social monitoring dashboard</p>
         </div>
-        <select
-          className="text-sm font-semibold border-2 border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-800 shadow-sm focus:outline-none focus:border-blue-400"
-          value={days}
-          onChange={(e) => setDays(Number(e.target.value))}
-        >
-          <option value={1}>24 hours</option>
-          <option value={7}>7 days</option>
-          <option value={30}>30 days</option>
-        </select>
+        <DateRangePicker
+          value={range}
+          onChange={setRange}
+          onRefresh={reload}
+          presets={[{ days: 1, label: "24 ชม." }, { days: 7, label: "7 วัน" }, { days: 30, label: "30 วัน" }, { days: 90, label: "90 วัน" }]}
+        />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">

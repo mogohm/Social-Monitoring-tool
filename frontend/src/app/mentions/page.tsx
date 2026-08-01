@@ -7,7 +7,7 @@ import MentionCard, { type MentionData } from "@/components/MentionCard";
 import MentionDetail from "@/components/MentionDetail";
 import DateRangePicker from "@/components/DateRangePicker";
 import { DateRange, rangeParams } from "@/lib/dateRange";
-import { RefreshCw, Tag, User } from "lucide-react";
+import { RefreshCw, Tag, User, ChevronLeft, ChevronRight } from "lucide-react";
 
 const CHANNELS   = ["", "facebook", "facebook_comment", "twitter", "tiktok", "youtube", "line_oa", "instagram", "pantip", "news"];
 const SENTIMENTS = ["", "positive", "neutral", "negative"];
@@ -28,19 +28,39 @@ function MentionsContent() {
   const [author,    setAuthor]    = useState(searchParams.get("author") ?? "");
   const [range,     setRange]     = useState<DateRange>({ days: 7 });
   const [detailId,  setDetailId]  = useState<number | null>(null);
+  const [total,     setTotal]     = useState(0);
+  const [page,      setPage]      = useState(0);
+  const [pageSize,  setPageSize]  = useState(50);
 
   const load = useCallback(() => {
     setLoading(true);
-    const params: Record<string, string | number> = { ...rangeParams(range), limit: 50 };
+    const params: Record<string, string | number> = {
+      ...rangeParams(range),
+      limit: pageSize,
+      offset: page * pageSize,
+      with_total: 1,
+    };
     if (channel)   params.channel   = channel;
     if (sentiment) params.sentiment = sentiment;
     if (priority)  params.priority  = priority;
     if (keyword)   params.keyword   = keyword;
     if (author)    params.author    = author;
-    fetchMentions(params).then((d) => setMentions(d)).finally(() => setLoading(false));
-  }, [channel, sentiment, priority, keyword, author, range]);
+    fetchMentions(params)
+      .then((d) => { setMentions(d.items ?? d); setTotal(d.total ?? (d.items ?? d).length); })
+      .finally(() => setLoading(false));
+  }, [channel, sentiment, priority, keyword, author, range, page, pageSize]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Any filter change invalidates the current page — otherwise you can land on
+  // page 3 of a result set that now only has one page and see nothing.
+  useEffect(() => {
+    setPage(0);
+  }, [channel, sentiment, priority, keyword, author, range, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const firstShown = total === 0 ? 0 : page * pageSize + 1;
+  const lastShown  = Math.min(total, page * pageSize + mentions.length);
   useEffect(() => {
     api.get("/api/keywords?active_only=true").then((r) => setKeywords(r.data)).catch(() => {});
   }, []);
@@ -53,7 +73,13 @@ function MentionsContent() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Live Mention Feed</h1>
-            <p className="text-sm font-medium text-gray-600 mt-0.5">{mentions.length} mentions found</p>
+            {/* Used to print mentions.length, which is just the page size —
+                it read "50 mentions found" while 188 matched the filters. */}
+            <p className="text-sm font-medium text-gray-600 mt-0.5">
+              {total === 0
+                ? "ไม่พบข้อมูล"
+                : <>แสดง <strong>{firstShown}–{lastShown}</strong> จาก <strong>{total.toLocaleString()}</strong> รายการ</>}
+            </p>
           </div>
           <button onClick={load} className="flex items-center gap-1.5 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl transition-colors">
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
@@ -126,11 +152,56 @@ function MentionsContent() {
             No mentions found for the selected filters.
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {mentions.map((m) => (
-              <MentionCard key={m.id} mention={m} onViewDetail={(m) => setDetailId(m.id)} />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {mentions.map((m) => (
+                <MentionCard key={m.id} mention={m} onViewDetail={(m) => setDetailId(m.id)} />
+              ))}
+            </div>
+
+            {/* Pagination — without it the newest `limit` rows were all you
+                could ever reach, so older days in the range were unreachable. */}
+            <div className="flex items-center justify-between gap-3 flex-wrap bg-white border-2 border-gray-200 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-500">ต่อหน้า</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="text-sm font-semibold border-2 border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-800 focus:outline-none focus:border-blue-400"
+                >
+                  {[25, 50, 100, 200].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+
+              <span className="text-xs font-semibold text-gray-500">
+                หน้า {page + 1} / {totalPages}
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(0)}
+                  disabled={page === 0}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg border-2 border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-white transition-colors"
+                >
+                  หน้าแรก
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg border-2 border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-white transition-colors"
+                >
+                  <ChevronLeft size={13} /> ก่อนหน้า
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 disabled:hover:bg-blue-600 transition-colors"
+                >
+                  ถัดไป <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 

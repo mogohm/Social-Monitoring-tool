@@ -55,25 +55,43 @@ async def list_mentions(
     tz_offset: Optional[int] = Query(None, description="Client minutes east of UTC, e.g. 420 for Bangkok"),
     limit: int = Query(50, le=200),
     offset: int = 0,
+    with_total: bool = Query(
+        False,
+        description="Return {items, total, limit, offset} instead of a bare list, "
+                    "so the UI can page and show a truthful count",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     since, until = resolve_range(days, date_from, date_to, tz_offset)
-    q = select(Mention).where(Mention.created_at.between(since, until)).where(Mention.is_spam == False)
+
+    filtered = select(Mention).where(
+        Mention.created_at.between(since, until)
+    ).where(Mention.is_spam == False)
     if channel:
-        q = q.where(Mention.channel == channel)
+        filtered = filtered.where(Mention.channel == channel)
     if sentiment:
-        q = q.where(Mention.sentiment == sentiment)
+        filtered = filtered.where(Mention.sentiment == sentiment)
     if priority:
-        q = q.where(Mention.priority == priority)
+        filtered = filtered.where(Mention.priority == priority)
     if keyword:
-        q = q.where(Mention.content.ilike(f"%{keyword}%"))
+        filtered = filtered.where(Mention.content.ilike(f"%{keyword}%"))
     if author:
-        q = q.where(Mention.author == author)
+        filtered = filtered.where(Mention.author == author)
     if project_id:
-        q = q.where(Mention.project_id == project_id)
-    q = q.order_by(desc(Mention.created_at)).limit(limit).offset(offset)
-    mentions = (await db.execute(q)).scalars().all()
-    return [_serialize(m) for m in mentions]
+        filtered = filtered.where(Mention.project_id == project_id)
+
+    page = filtered.order_by(desc(Mention.created_at)).limit(limit).offset(offset)
+    mentions = (await db.execute(page)).scalars().all()
+    items = [_serialize(m) for m in mentions]
+
+    # Default stays a bare list so existing callers are untouched.
+    if not with_total:
+        return items
+
+    total = (await db.execute(
+        select(func.count()).select_from(filtered.subquery())
+    )).scalar() or 0
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/stats")

@@ -9,6 +9,7 @@ interface Keyword {
   category: string | null;
   is_negative: boolean;
   is_competitor: boolean;
+  risk_weight: number | null;
   is_active: boolean;
   match_count: number;
   mention_count?: number;
@@ -89,6 +90,14 @@ export default function KeywordsPage() {
 
   const toggleActive = async (kw: Keyword) => {
     await api.patch(`/api/keywords/${kw.id}`, { is_active: !kw.is_active });
+    await load();
+  };
+
+  const saveWeight = async (kw: Keyword, raw: string) => {
+    const v = raw.trim() === "" ? null : Number(raw);
+    if (v !== null && (Number.isNaN(v) || v < 0 || v > 100)) return;
+    if (v === kw.risk_weight) return;
+    await api.patch(`/api/keywords/${kw.id}`, { risk_weight: v });
     await load();
   };
 
@@ -261,6 +270,9 @@ export default function KeywordsPage() {
                     </button>
                   </th>
                 ))}
+                <th className="px-5 py-3 text-center text-xs font-bold text-gray-700 uppercase" title="น้ำหนักคะแนนเสี่ยงเฉพาะคำนี้ — เว้นว่างคือใช้ค่ากลางจากหน้า Risk Settings">
+                  น้ำหนัก
+                </th>
                 <th className="px-5 py-3 text-center text-xs font-bold text-gray-700 uppercase">Active</th>
                 <th className="px-5 py-3 text-center text-xs font-bold text-gray-700 uppercase">Action</th>
               </tr>
@@ -293,6 +305,22 @@ export default function KeywordsPage() {
                     <span className="text-sm font-extrabold text-gray-900">
                       {(kw.mention_count ?? kw.match_count).toLocaleString()}
                     </span>
+                  </td>
+                  {/* Per-word weight — only meaningful for Negative keywords,
+                      since that is the component it feeds. */}
+                  <td className="px-5 py-3.5 text-center">
+                    {kw.is_negative ? (
+                      <input
+                        type="number" min={0} max={100}
+                        defaultValue={kw.risk_weight ?? ""}
+                        placeholder="ค่ากลาง"
+                        onBlur={(e) => saveWeight(kw, e.target.value)}
+                        className="w-20 border-2 border-gray-200 rounded-lg px-2 py-1 text-sm font-bold text-center
+                                   focus:outline-none focus:border-blue-400 tabular-nums placeholder:font-medium placeholder:text-gray-300"
+                      />
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="px-5 py-3.5 text-center">
                     <button

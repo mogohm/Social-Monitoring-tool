@@ -15,6 +15,7 @@ class KeywordCreate(BaseModel):
     category: Optional[str] = None
     is_negative: bool = False
     is_competitor: bool = False
+    risk_weight: float | None = None
 
 
 class KeywordUpdate(BaseModel):
@@ -22,6 +23,7 @@ class KeywordUpdate(BaseModel):
     category: Optional[str] = None
     is_negative: Optional[bool] = None
     is_competitor: Optional[bool] = None
+    risk_weight: Optional[float] = None
     is_active: Optional[bool] = None
 
 
@@ -46,7 +48,8 @@ async def create_keyword(data: KeywordCreate, db: AsyncSession = Depends(get_db)
     if existing.scalar_one_or_none():
         raise HTTPException(409, f"keyword '{word_clean}' already exists")
     kw = Keyword(word=word_clean, category=data.category, is_negative=data.is_negative,
-                 is_competitor=data.is_competitor)
+                 is_competitor=data.is_competitor,
+                 risk_weight=data.risk_weight)
     db.add(kw)
     await db.commit()
     await db.refresh(kw)
@@ -66,6 +69,10 @@ async def update_keyword(kw_id: int, data: KeywordUpdate, db: AsyncSession = Dep
         kw.is_negative = data.is_negative
     if data.is_competitor is not None:
         kw.is_competitor = data.is_competitor
+    # Keyed on "was it sent" rather than "is it None", so sending null clears
+    # the per-word weight back to the shared default.
+    if "risk_weight" in data.model_fields_set:
+        kw.risk_weight = data.risk_weight
     if data.is_active is not None:
         kw.is_active = data.is_active
     await db.commit()
@@ -106,6 +113,7 @@ def _ser(k: Keyword) -> dict:
         "category": k.category,
         "is_negative": k.is_negative,
         "is_competitor": k.is_competitor,
+        "risk_weight": k.risk_weight,
         "is_active": k.is_active,
         "match_count": k.match_count,
         "created_at": utc_iso(k.created_at) if k.created_at else None,

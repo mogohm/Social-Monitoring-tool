@@ -1,6 +1,7 @@
 import re
 from typing import Optional
 from backend.config import settings
+from backend.services.risk_service import RiskWeights, DEFAULTS, rule_score, priority_for
 
 try:
     from openai import AsyncOpenAI
@@ -44,33 +45,22 @@ def _rule_based_sentiment(text: str) -> str:
     return "neutral"
 
 
-def _risk_score(text: str, sentiment: str) -> float:
-    score = 0.0
-    if sentiment == "negative":
-        score += 40
-    neg_hits = sum(1 for w in NEGATIVE_KEYWORDS if w in text)
-    score += min(neg_hits * 10, 40)
-    if len(text) > 200:
-        score += 10
-    return min(score, 100.0)
+def count_negative_hits(text: str) -> int:
+    return sum(1 for w in NEGATIVE_KEYWORDS if w in text)
 
 
-async def analyze_text(text: str) -> dict:
-    if _openai_client and settings.OPENAI_API_KEY:
-        return await _analyze_with_openai(text)
-    return _analyze_rule_based(text)
+async def analyze_text(text: str, weights: RiskWeights = DEFAULTS) -> dict:
+    """Analyse a post. Uses the model when a key is configured and `use_ai` is
+    on; otherwise falls back to the configurable rule score."""
+    if _openai_client and settings.OPENAI_API_KEY and weights.use_ai:
+        return await _analyze_with_openai(text, weights)
+    return _analyze_rule_based(text, weights)
 
 
-def _analyze_rule_based(text: str) -> dict:
+def _analyze_rule_based(text: str, weights: RiskWeights = DEFAULTS) -> dict:
     sentiment = _rule_based_sentiment(text)
-    risk = _risk_score(text, sentiment)
-    priority = "low"
-    if risk >= 80:
-        priority = "critical"
-    elif risk >= 60:
-        priority = "high"
-    elif risk >= 40:
-        priority = "medium"
+    risk = rule_score(text, sentiment, count_negative_hits(text), weights)
+    priority = priority_for(risk, weights)
 
     has_forbidden = any(w in text for w in FORBIDDEN_WORDS)
     return {
@@ -86,7 +76,7 @@ def _analyze_rule_based(text: str) -> dict:
     }
 
 
-async def _analyze_with_openai(text: str) -> dict:
+async def _analyze_with_openai(text: str, weights: RiskWeights = DEFAULTS) -> dict:
     try:
         response = await _openai_client.chat.completions.create(
             model="gpt-4o-mini",
@@ -110,6 +100,16 @@ async def _analyze_with_openai(text: str) -> dict:
         import json
         result = json.loads(response.choices[0].message.content)
         result["has_forbidden_words"] = any(w in text for w in FORBIDDEN_WORDS)
+
+        # Priority comes from the operator's thresholds, not the model's own
+        # judgement, so "critical" means the same thing however it was scored.
+        try:
+            result["risk_score"] = min(float(result.get("risk_score") or 0), 100.0)
+        except (TypeError, ValueError):
+            result["risk_score"] = 0.0
+        result["priority"] = priority_for(result["risk_score"], weights)
+        result["scored_by"] = "ai"
         return result
-    except Exception:
-        return _analyze_rule_based(text)
+    except Exception as exc:
+        print(f"[ai] falling back to rules: {exc}")
+        return _analyze_rule_based(text, weights)

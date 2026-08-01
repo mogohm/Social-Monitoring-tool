@@ -141,6 +141,9 @@ class Keyword(Base):
     # Tracked as a competitor term — orthogonal to is_negative, so a word can
     # be both (e.g. a rival brand mentioned in complaints).
     is_competitor: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Per-word override for the "user flagged negative" points. NULL falls back
+    # to RiskConfig.user_negative_pts, so "โกงเงิน" can outweigh "ช้า".
+    risk_weight: Mapped[float | None] = mapped_column(Float)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     match_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -197,6 +200,39 @@ class AlertLog(Base):
     mention_url: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="sent")   # sent | failed
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class RiskConfig(Base):
+    """Tunable weights for the risk score.
+
+    These were hardcoded, so changing how risk is judged meant a code deploy.
+    Held in a single row (name="default") the dashboard can edit.
+    """
+    __tablename__ = "risk_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True, default="default")
+
+    # Rule-based components
+    negative_sentiment_pts: Mapped[float] = mapped_column(Float, default=40)
+    keyword_hit_pts: Mapped[float] = mapped_column(Float, default=10)
+    keyword_hit_cap: Mapped[float] = mapped_column(Float, default=40)
+    long_text_pts: Mapped[float] = mapped_column(Float, default=10)
+    long_text_chars: Mapped[int] = mapped_column(Integer, default=200)
+    # Applied when a keyword the user flagged Negative is matched
+    user_negative_pts: Mapped[float] = mapped_column(Float, default=35)
+    user_negative_cap: Mapped[float] = mapped_column(Float, default=70)
+
+    # Score -> priority thresholds
+    critical_at: Mapped[float] = mapped_column(Float, default=80)
+    high_at: Mapped[float] = mapped_column(Float, default=60)
+    medium_at: Mapped[float] = mapped_column(Float, default=40)
+
+    # Let the model score first when an OpenAI key is configured; the weights
+    # above still apply on top, so operator judgement is never overridden.
+    use_ai: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ScraperConfig(Base):

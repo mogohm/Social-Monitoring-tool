@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from backend.models.database import engine, Base, AsyncSessionLocal
 from backend.models.models import Keyword, MonitoredChannel, ScraperConfig
-from backend.routers import mentions, qc, webhook, keywords, channels, admin, alerts
+from backend.routers import mentions, qc, webhook, keywords, channels, admin, alerts, risk
 from sqlalchemy import select, text
 
 DEFAULT_KEYWORDS = [
@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alert_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'sent'",
             "ALTER TABLE alert_logs ADD COLUMN IF NOT EXISTS error  TEXT",
             "ALTER TABLE keywords ADD COLUMN IF NOT EXISTS is_competitor BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE keywords ADD COLUMN IF NOT EXISTS risk_weight   FLOAT",
         ]:
             try:
                 await conn.execute(text(col_sql))
@@ -93,6 +94,7 @@ app.include_router(keywords.router)
 app.include_router(channels.router)
 app.include_router(admin.router)
 app.include_router(alerts.router)
+app.include_router(risk.router)
 
 
 @app.get("/")

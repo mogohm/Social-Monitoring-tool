@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from backend.services.ai_service import analyze_text
+from backend.services.risk_service import load_weights, apply_user_keywords, priority_for
 from backend.models.database import AsyncSessionLocal
 from backend.models.models import Mention, Keyword, AdminChat
 from sqlalchemy import select
@@ -99,7 +100,12 @@ async def _match_keywords(content: str, db) -> list[dict]:
     matched, lower = [], content.lower()
     for kw in kws:
         if kw.word.lower() in lower:
-            matched.append({"word": kw.word, "category": kw.category or "general", "is_negative": kw.is_negative})
+            matched.append({
+                "word": kw.word,
+                "category": kw.category or "general",
+                "is_negative": kw.is_negative,
+                "risk_weight": kw.risk_weight,
+            })
             kw.match_count = (kw.match_count or 0) + 1
     return matched
 
@@ -114,24 +120,22 @@ async def generic_webhook(payload: MentionPayload):
     payload = payload.model_copy(update={"content": clean})
 
     async with AsyncSessionLocal() as db:
-        analysis = await analyze_text(payload.content)
+        weights = await load_weights(db)
+        analysis = await analyze_text(payload.content, weights)
         tags = await _match_keywords(payload.content, db)
 
-        # Boost risk/sentiment when user-marked negative keywords are matched
-        neg_hits = [t for t in tags if t.get("is_negative")]
+        # Operator-flagged keywords weigh in on top of whatever produced the
+        # base score (rules or the model), so a word marked dangerous always
+        # raises the score even when the model called the post harmless.
+        boosted, neg_hits = apply_user_keywords(
+            analysis.get("risk_score") or 0, tags, weights
+        )
         if neg_hits:
             analysis["sentiment"] = "negative"
             analysis["emotion"] = "anger"
             analysis["intent"] = "complaint"
-            boost = min(len(neg_hits) * 35, 70)
-            analysis["risk_score"] = min((analysis.get("risk_score") or 0) + boost, 100)
-            score = analysis["risk_score"]
-            if score >= 80:
-                analysis["priority"] = "critical"
-            elif score >= 60:
-                analysis["priority"] = "high"
-            elif score >= 40:
-                analysis["priority"] = "medium"
+        analysis["risk_score"] = boosted
+        analysis["priority"] = priority_for(boosted, weights)
         # parse published_at
         pub_at = datetime.utcnow()
         if payload.published_at:

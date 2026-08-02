@@ -37,6 +37,18 @@ SEEN_FILE     = Path(__file__).parent / ".fb_seen.json"
 _ADMIN_BASE = WEBHOOK_URL.replace("/api/webhook/mention", "").rstrip("/")
 
 
+# How many post/comment elements the last extract pass saw. A cycle that never
+# sees a single element is structurally different from one where dedup filtered
+# everything, and must not be reported as "no new data".
+_last_element_count = [0]
+
+
+class SessionLost(Exception):
+    """Raised when the group page renders nothing scrapeable — almost always a
+    signed-out session. Propagates so the run loop re-authenticates instead of
+    quietly reporting an empty cycle."""
+
+
 class BrowserDead(Exception):
     """Raised when the Playwright/Chromium connection is gone.
 
@@ -76,12 +88,29 @@ def save_seen(seen: set):
 
 # ---------------------------------------------------------------------------
 async def is_logged_in(page) -> bool:
+    """True only when actually signed in.
+
+    Previously this accepted `[aria-label="Facebook"]` as proof, but that is the
+    Facebook logo, which is also on the signed-out page. When the session
+    expired Facebook kept the group URL and drew a login modal over it, so the
+    URL check passed too — the scraper believed it was signed in, found zero
+    posts, and reported "no new data" for 38 hours.
+
+    A login form is therefore treated as decisive: if one is on the page, we
+    are signed out no matter what else matches.
+    """
     try:
         if "login" in page.url or "checkpoint" in page.url:
             return False
+        logged_out = await page.query_selector(
+            '#login_form, input[name="pass"], form[action*="login"]'
+        )
+        if logged_out:
+            return False
         el = await page.query_selector(
             '[aria-label="Home"], [data-pagelet="LeftRail"], '
-            'div[data-pagelet="Stories"], [aria-label="Facebook"]'
+            'div[data-pagelet="Stories"], div[role="feed"], '
+            '[aria-label="Your profile"]'
         )
         return el is not None
     except Exception:
@@ -513,6 +542,7 @@ async def extract_articles(page, seen: set) -> list[dict]:
         # === COMMENTS: div[role="article"] (ยังคงเก็บ comment) ===
         comment_arts = await page.query_selector_all('div[role="article"]')
 
+        _last_element_count[0] = len(post_cards) + len(comment_arts)
         print(f"    พบ {len(post_cards)} post cards + {len(comment_arts)} comment articles")
 
         for pc in post_cards:
@@ -580,8 +610,11 @@ async def scrape_once(page, seen: set) -> int:
         await asyncio.sleep(2.5)
 
     # Main loop: extract แล้วค่อย scroll ต่อ
+    saw_any_element = False
     for i in range(SCROLL_ROUNDS):
         new = await extract_articles(page, seen)
+        if _last_element_count[0] > 0:
+            saw_any_element = True
         posts_cnt   = sum(1 for p in new if not p["is_comment"])
         comment_cnt = sum(1 for p in new if p["is_comment"])
         all_items.extend(new)
@@ -602,8 +635,15 @@ async def scrape_once(page, seen: set) -> int:
         pass
     await asyncio.sleep(1)
 
+    if not saw_any_element:
+        # Not "nothing new" — nothing at all was on the page.
+        raise SessionLost(
+            "ไม่พบ post card หรือ comment article เลยแม้แต่อันเดียวตลอดทั้งรอบ "
+            "— น่าจะ session หลุดหรือ Facebook เปลี่ยนหน้า"
+        )
+
     if not all_items:
-        print("  ⚠️  ไม่พบข้อมูลใหม่รอบนี้")
+        print("  ⚠️  ไม่พบข้อมูลใหม่รอบนี้ (เห็นโพสต์บนหน้า แต่เก็บไปแล้วทั้งหมด)")
         return 0
 
     posts_total   = sum(1 for p in all_items if not p["is_comment"])
@@ -790,7 +830,28 @@ async def run():
                     await asyncio.sleep(5)
 
             cycle_start = time.time()
-            posts_sent = await scrape_once(page, seen)
+            try:
+                posts_sent = await scrape_once(page, seen)
+            except SessionLost as e:
+                # The page had nothing scrapeable. Re-authenticate once and
+                # retry rather than reporting a healthy-looking empty cycle.
+                print(f"\n🚫 {e}")
+                print("🔑 พยายาม login ใหม่แล้วลองอีกครั้ง...")
+                SESSION_FILE.unlink(missing_ok=True)
+                if await do_login(page):
+                    await ctx.storage_state(path=str(SESSION_FILE))
+                    await page.goto(group_url, wait_until="domcontentloaded")
+                    await asyncio.sleep(6)
+                    try:
+                        posts_sent = await scrape_once(page, seen)
+                    except SessionLost as e2:
+                        print(f"❌ ยังเก็บไม่ได้หลัง login ใหม่: {e2}")
+                        print("   ต้องเข้าไปตรวจสอบเอง — อาจติด checkpoint / 2FA "
+                              "หรือ Facebook เปลี่ยนโครงสร้างหน้า")
+                        posts_sent = 0
+                else:
+                    print("❌ Login ไม่สำเร็จ — ข้ามรอบนี้")
+                    posts_sent = 0
             duration = time.time() - cycle_start
 
             await report_cycle(duration, posts_sent)

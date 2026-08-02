@@ -24,6 +24,10 @@ WEBHOOK_URL   = os.getenv("SOCIALEYE_WEBHOOK_URL", "http://localhost:8000/api/we
 # Kept at 8: observed cycles surface new posts as late as scroll round 7, so
 # trimming rounds loses posts. The cycle is kept short via ELEMENT_SETTLE_SEC
 # instead, which costs coverage nothing.
+# Set FB_HEADLESS=0 to run with a visible browser. Needed when Facebook shows a
+# checkpoint or bot-check: those must be cleared by hand, and a headless run
+# just waits and fails. Clear it once visibly and the saved session carries on.
+FB_HEADLESS = os.getenv("FB_HEADLESS", "1").strip().lower() not in ("0", "false", "no")
 SCROLL_ROUNDS = int(os.getenv("SCROLL_ROUNDS", "8"))
 # Seconds to wait after scrolling an element into view, for lazy images.
 ELEMENT_SETTLE_SEC = float(os.getenv("ELEMENT_SETTLE_SEC", "1.2"))
@@ -198,6 +202,16 @@ async def do_login(page) -> bool:
     if await is_logged_in(page):
         print("✅ Login สำเร็จ")
         return True
+
+    if FB_HEADLESS:
+        # Nobody can clear a checkpoint in a headless browser, so waiting the
+        # full timeout only delays the inevitable and burns another attempt.
+        print("⚠️  Facebook ขอ checkpoint / bot-check แต่รันแบบ headless อยู่")
+        print("   → หยุด scraper แล้วรันคำสั่งนี้ครั้งเดียวเพื่อยืนยันตัวตนด้วยมือ:")
+        print('   cd "h:\\Social Monitoring Tool\\backend" && '
+              'set FB_HEADLESS=0 && .venv\\Scripts\\python.exe fb_group_scraper.py')
+        print("   ยืนยันเสร็จแล้ว session จะถูกบันทึก ปิดหน้าต่างแล้วเปิด scraper ปกติต่อได้")
+        return False
 
     print("⚠️  มี checkpoint หรือ bot-check — ทำใน browser แล้วรอสักครู่")
     return await wait_for_login(page, 180)
@@ -736,8 +750,10 @@ async def run():
     print(f"📋 โพสต์ที่เคยเห็นแล้ว: {len(seen)} รายการ")
 
     async with async_playwright() as pw:
+        if not FB_HEADLESS:
+            print("🖥  โหมดเห็นหน้าต่าง (FB_HEADLESS=0) — ทำ checkpoint ใน browser ได้")
         browser = await pw.chromium.launch(
-            headless=True,
+            headless=FB_HEADLESS,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -808,6 +824,7 @@ async def run():
         print(f"✅ เข้ากลุ่มได้แล้ว — เริ่ม loop ทุก {INTERVAL_MIN} นาที\n")
 
         round_no = 0
+        login_failures = 0
         while True:
             round_no += 1
             print(f"\n{'='*60}")
@@ -850,8 +867,16 @@ async def run():
                               "หรือ Facebook เปลี่ยนโครงสร้างหน้า")
                         posts_sent = 0
                 else:
-                    print("❌ Login ไม่สำเร็จ — ข้ามรอบนี้")
+                    # Retrying a blocked login every interval risks Facebook
+                    # locking the account harder, so back off instead.
+                    login_failures += 1
+                    backoff = min(30 * login_failures, 120)
+                    print(f"❌ Login ไม่สำเร็จ (ครั้งที่ {login_failures}) — "
+                          f"พักยาว {backoff} นาทีก่อนลองใหม่ เพื่อเลี่ยงการโดนล็อกบัญชี")
+                    await asyncio.sleep(backoff * 60)
                     posts_sent = 0
+            else:
+                login_failures = 0
             duration = time.time() - cycle_start
 
             await report_cycle(duration, posts_sent)

@@ -4,6 +4,10 @@ sqlalchemy[asyncio]==2.0.35
 pydantic==2.9.2
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
+# webhook.py parses published_at with it. Absent here, the import raised inside
+# a bare except and every text timestamp silently fell back to "now", so posts
+# were dated by ingestion time instead of when they were actually written.
+python-dateutil==2.9.0.post0
 openai==1.51.0
 mangum==0.17.0
 aiohttp==3.10.9

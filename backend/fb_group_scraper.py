@@ -131,6 +131,20 @@ async def wait_for_login(page, timeout_sec=180) -> bool:
 
 
 async def do_login(page) -> bool:
+    # Without credentials there is nothing to submit. Filling the form with
+    # empty strings just produces a failed login that then gets reported as a
+    # checkpoint — two different problems with two different fixes.
+    if not FB_EMAIL or not FB_PASSWORD:
+        print("🔑 ต้อง login ใหม่ แต่ไม่มี FB_EMAIL/FB_PASSWORD ใน .env")
+        if FB_HEADLESS:
+            print("   → หยุด scraper แล้ว login ด้วยมือครั้งเดียว:")
+            print(f'   cd "{Path(__file__).parent}" && '
+                  "set FB_HEADLESS=0 && .venv\\Scripts\\python.exe fb_group_scraper.py")
+            return False
+        print("   → login ในหน้าต่าง browser ที่เปิดอยู่ได้เลย")
+        await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded")
+        return await wait_for_login(page, 300)
+
     print("🔑 กำลัง Login Facebook...")
     await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded")
     await asyncio.sleep(3)
@@ -208,7 +222,7 @@ async def do_login(page) -> bool:
         # full timeout only delays the inevitable and burns another attempt.
         print("⚠️  Facebook ขอ checkpoint / bot-check แต่รันแบบ headless อยู่")
         print("   → หยุด scraper แล้วรันคำสั่งนี้ครั้งเดียวเพื่อยืนยันตัวตนด้วยมือ:")
-        print('   cd "h:\\Social Monitoring Tool\\backend" && '
+        print(f'   cd "{Path(__file__).parent}" && '
               'set FB_HEADLESS=0 && .venv\\Scripts\\python.exe fb_group_scraper.py')
         print("   ยืนยันเสร็จแล้ว session จะถูกบันทึก ปิดหน้าต่างแล้วเปิด scraper ปกติต่อได้")
         return False
@@ -499,6 +513,7 @@ async def _process_element(el, is_comment: bool, seen: set) -> dict | None:
     seen.add(dedup)
 
     return {
+        "dedup":       dedup,
         "channel":     "facebook_comment" if is_comment else "facebook",
         "author":      data.get("author") or "Unknown",
         "author_id":   data.get("author_id") or "",
@@ -612,6 +627,13 @@ async def scrape_once(page, seen: set) -> int:
     print(f"\n📜 เริ่ม scrape...")
     all_items: list[dict] = []
 
+    # `seen` gains every extracted item so the same post is not collected twice
+    # within one cycle. What gets *persisted* must be narrower: an item that
+    # never reached the API is not "seen", and writing it out anyway means it is
+    # skipped forever — a silent hole no retry can find. Keep the pre-cycle
+    # state and re-add only what the API confirmed.
+    seen_before = set(seen)
+
     # Pre-scroll: ข้ามส่วน header / featured / admin panel ให้โพสต์โหลด
     print("  ⬇️  scroll ผ่าน header เพื่อโหลดโพสต์...")
     for _ in range(4):
@@ -663,24 +685,42 @@ async def scrape_once(page, seen: set) -> int:
     posts_total   = sum(1 for p in all_items if not p["is_comment"])
     comment_total = sum(1 for p in all_items if p["is_comment"])
     print(f"\n📡 ส่ง {posts_total} โพสต์ + {comment_total} comment → SocialEye...")
-    sent = matched = 0
+    sent = matched = dup = failed = 0
+    confirmed = set(seen_before)
 
     async with aiohttp.ClientSession() as http:
         for item in all_items:
             res = await send_post(http, item)
             if res:
-                sent += 1
-                kw      = res.get("keywords_matched", 0)
-                matched += 1 if kw > 0 else 0
-                img_tag  = f"🖼x{len(item['images'])}" if item["images"] else ""
-                tag      = "💬" if item["is_comment"] else "📝"
-                flag     = "⭐" if kw > 0 else " ✓"
-                print(f"  {flag}{tag}{img_tag}[❤{item['likes']}] "
-                      f"{item['author'][:18]}: {item['content'][:55]}…")
+                # Stored or already stored — either way the API holds it, so it
+                # is safe never to send again.
+                confirmed.add(item["dedup"])
+                if res.get("status") == "duplicate":
+                    dup += 1
+                else:
+                    sent += 1
+                    kw      = res.get("keywords_matched", 0)
+                    matched += 1 if kw > 0 else 0
+                    img_tag  = f"🖼x{len(item['images'])}" if item["images"] else ""
+                    tag      = "💬" if item["is_comment"] else "📝"
+                    flag     = "⭐" if kw > 0 else " ✓"
+                    print(f"  {flag}{tag}{img_tag}[❤{item['likes']}] "
+                          f"{item['author'][:18]}: {item['content'][:55]}…")
+            else:
+                failed += 1
             await asyncio.sleep(0.3)
 
+    # Failed items stay out of the persisted set so the next cycle retries them.
+    seen.clear()
+    seen.update(confirmed)
     save_seen(seen)
-    print(f"  → ส่งสำเร็จ {sent}/{len(all_items)} | keyword hits: {matched}")
+
+    summary = f"  → ส่งสำเร็จ {sent}/{len(all_items)} | keyword hits: {matched}"
+    if dup:
+        summary += f" | มีอยู่แล้ว {dup}"
+    if failed:
+        summary += f" | ส่งไม่สำเร็จ {failed} (จะลองใหม่รอบหน้า)"
+    print(summary)
     return sent
 
 
@@ -733,8 +773,19 @@ async def fetch_interval() -> tuple[int, bool]:
 
 # ---------------------------------------------------------------------------
 async def run():
-    if not FB_EMAIL or not FB_PASSWORD or not FB_GROUP_URL:
-        print("❌ กรุณาตั้งค่า FB_EMAIL, FB_PASSWORD, FB_GROUP_URL ใน backend/.env")
+    if not FB_GROUP_URL:
+        print("❌ กรุณาตั้งค่า FB_GROUP_URL ใน backend/.env")
+        sys.exit(1)
+
+    # Credentials are only needed to log in. With a saved session there is
+    # nothing to log into, so demanding them turned a working setup into a
+    # startup failure — and pushed people into writing a password to disk that
+    # the run would never read.
+    if not SESSION_FILE.exists() and (not FB_EMAIL or not FB_PASSWORD):
+        print("❌ ยังไม่มี session และไม่มี FB_EMAIL/FB_PASSWORD ใน backend/.env")
+        print("   เลือกอย่างใดอย่างหนึ่ง: กรอกทั้งสองค่า หรือ login ด้วยมือครั้งเดียวด้วย")
+        print(f'   cd "{Path(__file__).parent}" && '
+              "set FB_HEADLESS=0 && .venv\\Scripts\\python.exe fb_group_scraper.py")
         sys.exit(1)
 
     try:

@@ -6,6 +6,7 @@ from backend.services.risk_service import load_weights, apply_user_keywords, pri
 from backend.models.database import AsyncSessionLocal
 from backend.models.models import Mention, Keyword, AdminChat
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 import re
 import unicodedata
@@ -187,7 +188,29 @@ async def generic_webhook(payload: MentionPayload):
             published_at=pub_at,
         )
         db.add(mention)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError as exc:
+            # external_id is unique, so re-sending a post already stored raised
+            # here and became a 500 — which the collector reads as "delivery
+            # failed". A collector that lost its dedup file (new machine, wiped
+            # state) then re-sends its whole backlog and every already-known
+            # post looks like an outage. Already stored is a success, not an
+            # error: report it plainly and let the caller move on.
+            #
+            # Only a unique violation (SQLSTATE 23505) means that. Any other
+            # constraint failure is a genuine defect and must keep surfacing as
+            # a 500 instead of being reported back as a stored post.
+            if getattr(getattr(exc, "orig", None), "sqlstate", None) != "23505":
+                raise
+            await db.rollback()
+            return {
+                "status": "duplicate",
+                "channel": payload.channel,
+                "external_id": payload.external_id,
+                "keywords_matched": 0,
+                "alerts_sent": 0,
+            }
         await db.refresh(mention)
 
     # Must await — Vercel freezes the serverless function the moment the HTTP

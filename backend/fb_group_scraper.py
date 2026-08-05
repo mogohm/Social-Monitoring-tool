@@ -334,13 +334,50 @@ JS_EXTRACT = r"""
     }
 
     // === TIMESTAMP ===
-    // abbr[data-utime] หรือ abbr[title] หรือ span บน post link
-    const abbrEl = article.querySelector('abbr[data-utime], abbr[title]');
-    if (abbrEl) {
-        result.timestamp = abbrEl.getAttribute('data-utime') || abbrEl.getAttribute('title') || (abbrEl.innerText || '').trim();
+    // Facebook แสดงอายุโพสต์ ("4h") ไม่ใช่เวลานาฬิกา แต่เก็บเวลาจริงไว้ใน
+    // aria-label ของ anchor ตัวเดียวกัน: "Wednesday 5 August 2026 at 09:35"
+    // ค่านั้นเป็นเวลาท้องถิ่นของ browser จึงให้ browser แปลงเป็น epoch เอง —
+    // ส่ง unix seconds ไปแทน server จะได้ไม่ต้องเดา timezone (ส่ง "09:35" ดิบ ๆ
+    // ไปเคยกลายเป็นเวลาเพี้ยน 7 ชั่วโมง และส่ง "4h" ไปเคยถูกอ่านเป็น 04:00)
+    const relRe = /^\s*\d+\s*(s|m|h|d|w|y|วิ|นาที|ชม\.?|ชั่วโมง|วัน|สัปดาห์|ปี)\s*$/i;
+    const normLabel = (s) => s
+        .replace(/^[A-Za-z]+day[,\s]+/i, '')     // "Wednesday "
+        .replace(/^[A-Za-z]{3},\s*/i, '')         // "Wed, "
+        .replace(/\s+at\s+/i, ' ')
+        .replace(/\s+เวลา\s+/, ' ')
+        .replace(/\s*น\.?\s*$/, '')
+        .trim();
+
+    const nowMs = Date.now();
+    const FIVE_YEARS = 5 * 365 * 24 * 3600 * 1000;
+    let relEpoch = null, minEpoch = null;
+    for (const a of article.querySelectorAll('a[aria-label]')) {
+        const label = a.getAttribute('aria-label') || '';
+        // alt-text ของรูปก็อยู่ใน aria-label เหมือนกันและยาวมาก ตัดทิ้งด้วยความยาว
+        if (label.length > 60 || !/\d/.test(label)) continue;
+        const ms = Date.parse(normLabel(label));
+        // ต้องเป็นเวลาที่สมเหตุสมผล ไม่ใช่อนาคตและไม่ใช่ 1970
+        if (isNaN(ms) || ms > nowMs + 300000 || ms < nowMs - FIVE_YEARS) continue;
+        // การ์ดหนึ่งใบมีได้ทั้งเวลาโพสต์และเวลา comment — ตัวที่ innerText เป็น
+        // อายุ ("4h") คือของโพสต์เอง ถ้าหาไม่เจอค่อยใช้ตัวที่เก่าที่สุด
+        // เพราะ comment เกิดหลังโพสต์เสมอ
+        if (relRe.test((a.innerText || '').trim()) && relEpoch === null) relEpoch = ms;
+        if (minEpoch === null || ms < minEpoch) minEpoch = ms;
+    }
+    const bestEpoch = relEpoch !== null ? relEpoch : minEpoch;
+
+    if (bestEpoch !== null) {
+        result.timestamp = String(Math.floor(bestEpoch / 1000));
     } else {
-        const timeSpan = article.querySelector('a[href*="/posts/"] span, a[href*="/permalink/"] span, a[href*="?story_fbid"] span');
-        if (timeSpan) result.timestamp = (timeSpan.getAttribute('title') || timeSpan.innerText || '').trim();
+        // ไม่มี aria-label ที่อ่านได้ (ภาษาอื่น / DOM เปลี่ยน) — ส่งค่าเดิมไป
+        // ฝั่ง server แปลงเวลาสัมพัทธ์ได้อยู่แล้ว แค่หยาบกว่าระดับชั่วโมง
+        const abbrEl = article.querySelector('abbr[data-utime], abbr[title]');
+        if (abbrEl) {
+            result.timestamp = abbrEl.getAttribute('data-utime') || abbrEl.getAttribute('title') || (abbrEl.innerText || '').trim();
+        } else {
+            const timeSpan = article.querySelector('a[href*="/posts/"] span, a[href*="/permalink/"] span, a[href*="?story_fbid"] span');
+            if (timeSpan) result.timestamp = (timeSpan.getAttribute('title') || timeSpan.innerText || '').trim();
+        }
     }
 
     // === CONTENT ===

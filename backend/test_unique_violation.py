@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
 
-from datetime import datetime                       # noqa: E402
+from datetime import datetime, timedelta            # noqa: E402
 from sqlalchemy.exc import IntegrityError            # noqa: E402
 from backend.routers.webhook import (                # noqa: E402
     _is_unique_violation,
@@ -81,6 +81,25 @@ PUB_CASES = [
     ("unix timestamp",      "1785729600",                datetime.utcfromtimestamp(1785729600)),
 ]
 
+# เวลาสัมพัทธ์ที่ Facebook ส่งมาจริง — วัดจากหน้ากลุ่มได้ '3h' '2h' '5h'
+# dateutil อ่าน '20h' เป็น 20:00 ของวันนี้ ซึ่งผิดวันและมักเป็นอนาคต
+# คู่ค่าคือ (ข้อความ, จำนวนวินาทีที่ควรถอยหลังจาก now)
+REL_CASES = [
+    ("3h",          3 * 3600),
+    ("20h",         20 * 3600),
+    ("45m",         45 * 60),
+    ("2d",          2 * 86400),
+    ("1w",          7 * 86400),
+    ("30s",         30),
+    ("5 ชม.",       5 * 3600),
+    ("2 ชั่วโมง",   2 * 3600),
+    ("10 นาที",     10 * 60),
+    ("3 วัน",       3 * 86400),
+    ("2 hours ago", 2 * 3600),
+    ("Just now",    0),
+    ("เมื่อสักครู่", 0),
+]
+
 
 def main() -> int:
     failed = 0
@@ -97,13 +116,38 @@ def main() -> int:
         failed += 0 if ok else 1
         print(f"  {'PASS' if ok else 'FAIL'}  published_at {name}: expected {expected}, got {got}")
 
+    print()
+    for raw, back_seconds in REL_CASES:
+        before = datetime.utcnow()
+        got = _parse_published_at(raw)
+        after = datetime.utcnow()
+        # ต้องอยู่ระหว่าง (before - delta) ถึง (after - delta) เผื่อเวลาที่ใช้รัน
+        lo = before - timedelta(seconds=back_seconds) - timedelta(seconds=2)
+        hi = after - timedelta(seconds=back_seconds) + timedelta(seconds=2)
+        ok = lo <= got <= hi and got.tzinfo is None
+        failed += 0 if ok else 1
+        print(f"  {'PASS' if ok else 'FAIL'}  relative {raw!r} → ย้อนหลัง {back_seconds}s: {got}")
+
+    print()
     # ค่าอ่านไม่ออกต้องไม่ทำให้ mention ตกไป — ตกกลับไปใช้เวลาปัจจุบันแบบ naive
     fallback = _parse_published_at("เมื่อวานตอนบ่าย")
     ok = fallback.tzinfo is None
     failed += 0 if ok else 1
-    print(f"  {'PASS' if ok else 'FAIL'}  published_at อ่านไม่ออก → naive fallback")
+    print(f"  {'PASS' if ok else 'FAIL'}  อ่านไม่ออก → naive fallback")
 
-    total = len(CASES) + len(PUB_CASES) + 1
+    # ไม่ว่าทางไหนก็ห้ามได้เวลาอนาคต
+    future = _parse_published_at("2099-01-01T00:00:00Z")
+    ok = future <= datetime.utcnow() + timedelta(minutes=5)
+    failed += 0 if ok else 1
+    print(f"  {'PASS' if ok else 'FAIL'}  เวลาอนาคตถูกปัดกลับเป็นปัจจุบัน: {future}")
+
+    # ของเก่าที่เป็นอดีตจริงต้องไม่โดนปัด
+    past = _parse_published_at("2026-08-03T04:00:00Z")
+    ok = past == datetime(2026, 8, 3, 4, 0, 0)
+    failed += 0 if ok else 1
+    print(f"  {'PASS' if ok else 'FAIL'}  อดีตจริงไม่ถูกแตะ: {past}")
+
+    total = len(CASES) + len(PUB_CASES) + len(REL_CASES) + 3
     print(f"\n{total - failed}/{total} passed")
     return 1 if failed else 0
 

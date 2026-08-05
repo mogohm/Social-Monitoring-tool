@@ -7,7 +7,7 @@ from backend.models.database import AsyncSessionLocal
 from backend.models.models import Mention, Keyword, AdminChat
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 import unicodedata
 
@@ -96,6 +96,40 @@ class MentionPayload(BaseModel):
     views: int = 0
 
 
+# Facebook renders post ages, not clock times: "3h" means three hours ago.
+# dateutil reads those as a time of day instead — "20h" became 20:00 today,
+# which is both the wrong day and, for most of the day, in the future. Relative
+# forms are therefore resolved here, before dateutil ever sees the string.
+_REL_UNITS = {
+    "s": 1, "sec": 1, "secs": 1, "second": 1, "seconds": 1, "วิ": 1, "วินาที": 1,
+    "m": 60, "min": 60, "mins": 60, "minute": 60, "minutes": 60, "นาที": 60,
+    "h": 3600, "hr": 3600, "hrs": 3600, "hour": 3600, "hours": 3600,
+    "ชม": 3600, "ชม.": 3600, "ชั่วโมง": 3600,
+    "d": 86400, "day": 86400, "days": 86400, "วัน": 86400,
+    "w": 604800, "wk": 604800, "week": 604800, "weeks": 604800, "สัปดาห์": 604800,
+    "y": 31536000, "yr": 31536000, "year": 31536000, "years": 31536000, "ปี": 31536000,
+}
+_REL_RE = re.compile(
+    r"^\s*(\d+)\s*([A-Za-z฀-๿.]+)\s*(?:ago|ที่แล้ว)?\s*$", re.IGNORECASE
+)
+_JUST_NOW = ("just now", "now", "เมื่อสักครู่", "เมื่อสักครู่นี้", "ไม่กี่วินาที")
+
+
+def _relative_to_datetime(ts: str, now: datetime) -> datetime | None:
+    """"3h" / "45m" / "2 วัน" → an absolute time, or None if not a relative form."""
+    if ts.strip().lower() in _JUST_NOW:
+        return now
+    m = _REL_RE.match(ts)
+    if not m:
+        return None
+    seconds = _REL_UNITS.get(m.group(2).lower().rstrip("."))
+    if seconds is None:
+        seconds = _REL_UNITS.get(m.group(2).lower())
+    if seconds is None:
+        return None
+    return now - timedelta(seconds=int(m.group(1)) * seconds)
+
+
 def _parse_published_at(raw: str | None) -> datetime:
     """Turn a collector's timestamp into a naive UTC datetime.
 
@@ -104,29 +138,39 @@ def _parse_published_at(raw: str | None) -> datetime:
     returns an aware value for anything carrying an offset ("...Z", "+07:00"),
     which every ISO-8601 collector sends, so the offset is applied and dropped
     here rather than handed to the driver.
-
-    This stayed hidden while python-dateutil was missing from the deployed
-    requirements: the import failed, the bare except swallowed it, and every
-    timestamp quietly fell back to a naive utcnow(). Installing it made real
-    parsing work and turned the latent mismatch into 500s.
     """
+    now = datetime.utcnow()
     if not raw:
-        return datetime.utcnow()
+        return now
+
+    ts = raw.strip()
+
+    rel = _relative_to_datetime(ts, now)
+    if rel is not None:
+        return rel
+
     try:
-        ts = raw.strip()
         if ts.isdigit():
             return datetime.utcfromtimestamp(int(ts))
         from dateutil import parser as dp
         parsed = dp.parse(ts)
     except Exception as exc:
-        # Not fatal — an unreadable timestamp should not reject the mention.
-        # It is logged because a silent fallback here is what hid the missing
-        # dependency: published_at looked populated while being ingestion time.
+        # Not fatal — an unreadable timestamp must not reject the mention. It is
+        # logged rather than swallowed: a silent fallback here is what let wrong
+        # published_at values sit in the table unnoticed.
         print(f"[webhook] published_at unparsed ({raw!r}): {exc}")
-        return datetime.utcnow()
+        return now
 
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    # A post cannot be published after it was collected. Anything ahead of now
+    # is a misread string, not news from the future, and storing it corrupts
+    # every date-range filter and trend chart it lands in. Small clock skew
+    # between here and the collector is tolerated.
+    if parsed > now + timedelta(minutes=5):
+        print(f"[webhook] published_at in the future ({raw!r} → {parsed}); using now")
+        return now
     return parsed
 
 

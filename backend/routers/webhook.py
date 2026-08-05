@@ -96,6 +96,30 @@ class MentionPayload(BaseModel):
     views: int = 0
 
 
+def _is_unique_violation(exc: IntegrityError) -> bool:
+    """True for a duplicate-key collision, false for every other constraint.
+
+    The Postgres code is 23505, but where it can be read from depends on the
+    driver stack. SQLAlchemy's asyncpg adapter wraps the asyncpg exception in
+    its own DBAPI-shaped error, and that wrapper does not always carry the code
+    forward on .orig — reading only exc.orig.sqlstate returned None here and
+    sent every duplicate back out as a 500. So try the places the code can
+    appear, then fall back to the message Postgres itself emits.
+    """
+    seen = []
+    err = getattr(exc, "orig", None) or exc
+    while err is not None and err not in seen and len(seen) < 5:
+        seen.append(err)
+        for attr in ("sqlstate", "pgcode"):
+            code = getattr(err, attr, None)
+            if code:
+                return str(code) == "23505"
+        err = getattr(err, "__cause__", None)
+    return "duplicate key value violates unique constraint" in str(
+        getattr(exc, "orig", None) or exc
+    )
+
+
 async def _match_keywords(content: str, db) -> list[dict]:
     kws = (await db.execute(select(Keyword).where(Keyword.is_active == True))).scalars().all()
     matched, lower = [], content.lower()
@@ -198,10 +222,10 @@ async def generic_webhook(payload: MentionPayload):
             # post looks like an outage. Already stored is a success, not an
             # error: report it plainly and let the caller move on.
             #
-            # Only a unique violation (SQLSTATE 23505) means that. Any other
-            # constraint failure is a genuine defect and must keep surfacing as
-            # a 500 instead of being reported back as a stored post.
-            if getattr(getattr(exc, "orig", None), "sqlstate", None) != "23505":
+            # Only a unique violation means that. Any other constraint failure
+            # is a genuine defect and must keep surfacing as a 500 instead of
+            # being reported back as a stored post.
+            if not _is_unique_violation(exc):
                 raise
             await db.rollback()
             return {

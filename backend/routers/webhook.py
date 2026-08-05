@@ -7,7 +7,7 @@ from backend.models.database import AsyncSessionLocal
 from backend.models.models import Mention, Keyword, AdminChat
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 import unicodedata
 
@@ -96,6 +96,40 @@ class MentionPayload(BaseModel):
     views: int = 0
 
 
+def _parse_published_at(raw: str | None) -> datetime:
+    """Turn a collector's timestamp into a naive UTC datetime.
+
+    Mention.published_at is TIMESTAMP WITHOUT TIME ZONE, so an aware datetime
+    cannot be stored — asyncpg rejects it and the whole request 500s. dateutil
+    returns an aware value for anything carrying an offset ("...Z", "+07:00"),
+    which every ISO-8601 collector sends, so the offset is applied and dropped
+    here rather than handed to the driver.
+
+    This stayed hidden while python-dateutil was missing from the deployed
+    requirements: the import failed, the bare except swallowed it, and every
+    timestamp quietly fell back to a naive utcnow(). Installing it made real
+    parsing work and turned the latent mismatch into 500s.
+    """
+    if not raw:
+        return datetime.utcnow()
+    try:
+        ts = raw.strip()
+        if ts.isdigit():
+            return datetime.utcfromtimestamp(int(ts))
+        from dateutil import parser as dp
+        parsed = dp.parse(ts)
+    except Exception as exc:
+        # Not fatal — an unreadable timestamp should not reject the mention.
+        # It is logged because a silent fallback here is what hid the missing
+        # dependency: published_at looked populated while being ingestion time.
+        print(f"[webhook] published_at unparsed ({raw!r}): {exc}")
+        return datetime.utcnow()
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
 def _is_unique_violation(exc: IntegrityError) -> bool:
     """True for a duplicate-key collision, false for every other constraint.
 
@@ -161,18 +195,7 @@ async def generic_webhook(payload: MentionPayload):
             analysis["intent"] = "complaint"
         analysis["risk_score"] = boosted
         analysis["priority"] = priority_for(boosted, weights)
-        # parse published_at
-        pub_at = datetime.utcnow()
-        if payload.published_at:
-            try:
-                ts = payload.published_at.strip()
-                if ts.isdigit():
-                    pub_at = datetime.utcfromtimestamp(int(ts))
-                else:
-                    from dateutil import parser as dp
-                    pub_at = dp.parse(ts)
-            except Exception:
-                pass
+        pub_at = _parse_published_at(payload.published_at)
 
         # รูปหลัก — ใช้รูปแรกใน image_urls ถ้ามี (filter rsrc.php / static icons)
         def _is_content_image(url: str) -> bool:

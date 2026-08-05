@@ -18,8 +18,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
 
+from datetime import datetime                       # noqa: E402
 from sqlalchemy.exc import IntegrityError            # noqa: E402
-from backend.routers.webhook import _is_unique_violation   # noqa: E402
+from backend.routers.webhook import (                # noqa: E402
+    _is_unique_violation,
+    _parse_published_at,
+)
 
 
 def wrap(orig):
@@ -67,6 +71,17 @@ CASES = [
 ]
 
 
+# published_at ต้องออกมาเป็น naive UTC เสมอ — column เป็น TIMESTAMP WITHOUT
+# TIME ZONE ถ้าหลุด aware ออกไป asyncpg จะปฏิเสธแล้วทั้ง request พังเป็น 500
+PUB_CASES = [
+    ("มี Z ต่อท้าย",        "2026-08-03T04:00:00Z",      datetime(2026, 8, 3, 4, 0, 0)),
+    ("offset +07:00",       "2026-08-03T11:00:00+07:00", datetime(2026, 8, 3, 4, 0, 0)),
+    ("offset -05:00",       "2026-08-02T23:00:00-05:00", datetime(2026, 8, 3, 4, 0, 0)),
+    ("naive ไม่มี offset",  "2026-08-03 04:00:00",       datetime(2026, 8, 3, 4, 0, 0)),
+    ("unix timestamp",      "1785729600",                datetime.utcfromtimestamp(1785729600)),
+]
+
+
 def main() -> int:
     failed = 0
     for name, exc, expected in CASES:
@@ -74,7 +89,22 @@ def main() -> int:
         ok = got == expected
         failed += 0 if ok else 1
         print(f"  {'PASS' if ok else 'FAIL'}  {name}: expected {expected}, got {got}")
-    print(f"\n{len(CASES) - failed}/{len(CASES)} passed")
+
+    print()
+    for name, raw, expected in PUB_CASES:
+        got = _parse_published_at(raw)
+        ok = got == expected and got.tzinfo is None
+        failed += 0 if ok else 1
+        print(f"  {'PASS' if ok else 'FAIL'}  published_at {name}: expected {expected}, got {got}")
+
+    # ค่าอ่านไม่ออกต้องไม่ทำให้ mention ตกไป — ตกกลับไปใช้เวลาปัจจุบันแบบ naive
+    fallback = _parse_published_at("เมื่อวานตอนบ่าย")
+    ok = fallback.tzinfo is None
+    failed += 0 if ok else 1
+    print(f"  {'PASS' if ok else 'FAIL'}  published_at อ่านไม่ออก → naive fallback")
+
+    total = len(CASES) + len(PUB_CASES) + 1
+    print(f"\n{total - failed}/{total} passed")
     return 1 if failed else 0
 
 

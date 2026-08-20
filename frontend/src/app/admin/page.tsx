@@ -17,7 +17,58 @@ interface ScraperConfig {
   last_run_at: string | null;
   last_posts_count: number;
   last_duration_seconds: number;
+  last_status: string | null;
+  last_error: string | null;
+  run_requested_at: string | null;
+  stale_after_seconds: number;
+  // Computed by the API, not here: whether the scraper is actually alive is
+  // one question that must have one answer, and the server owns it.
+  state: "running" | "paused" | "down" | "needs_login" | "never_reported";
+  stale: boolean;
+  seconds_since_last_run: number | null;
   updated_at: string | null;
+}
+
+// `enabled` is only what an operator asked for. A scraper that died still has
+// enabled=true, so showing that as "Running" is green-lighting the exact
+// outage this page exists to reveal. Everything below keys off `state`.
+const STATE_UI: Record<
+  ScraperConfig["state"],
+  { label: string; dot: string; text: string; box: string; note: string }
+> = {
+  running: {
+    label: "Running", dot: "bg-green-500", text: "text-green-700",
+    box: "border-gray-200",
+    note: "Reporting in on schedule.",
+  },
+  paused: {
+    label: "Paused", dot: "bg-amber-500", text: "text-amber-700",
+    box: "border-amber-300",
+    note: "Alive, but told not to collect.",
+  },
+  needs_login: {
+    label: "Needs login", dot: "bg-amber-500", text: "text-amber-700",
+    box: "border-amber-300",
+    note: "Running but signed out of Facebook — needs a person at a browser.",
+  },
+  down: {
+    label: "Down", dot: "bg-red-500", text: "text-red-700",
+    box: "border-red-300",
+    note: "No heartbeat for longer than a cycle allows. The process is not running.",
+  },
+  never_reported: {
+    label: "No data", dot: "bg-gray-400", text: "text-gray-600",
+    box: "border-gray-200",
+    note: "Never reported. Check ADMIN_TOKEN is set on both the API and the scraper.",
+  },
+};
+
+function humanDuration(sec: number | null): string {
+  if (sec === null) return "never";
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+  return `${Math.floor(sec / 86400)}d ${Math.floor((sec % 86400) / 3600)}h`;
 }
 
 function timeAgo(isoStr: string | null): string {
@@ -115,6 +166,27 @@ export default function AdminPage() {
     }
   }
 
+  async function runNow() {
+    if (!token) return;
+    setSaving(true);
+    setSaveMsg("");
+    try {
+      const res = await fetch(`${API_URL}/api/admin/scraper/run-now`, {
+        method: "POST",
+        headers: { "X-Admin-Token": token },
+      });
+      if (res.ok) {
+        setConfig(await res.json());
+        setSaveMsg("Requested — starts within ~1 min");
+        setTimeout(() => setSaveMsg(""), 4000);
+      }
+    } catch (e) {
+      console.error("runNow:", e);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function handleSignOut() {
     clearAdminToken();
     setToken("");
@@ -205,22 +277,80 @@ export default function AdminPage() {
 
       {config ? (
         <>
+          {/* Alert banner — the page must lead with the bad news, not bury it */}
+          {(config.state === "down" || config.state === "needs_login" || config.state === "never_reported") && (
+            <div className={`rounded-xl border-2 p-5 ${
+              config.state === "down" ? "bg-red-50 border-red-300" : "bg-amber-50 border-amber-300"
+            }`}>
+              <div className="flex items-start gap-3">
+                <AlertCircle
+                  size={16}
+                  className={`mt-0.5 shrink-0 ${config.state === "down" ? "text-red-600" : "text-amber-600"}`}
+                />
+                <div>
+                  <p className={`text-sm font-extrabold ${
+                    config.state === "down" ? "text-red-900" : "text-amber-900"
+                  }`}>
+                    {config.state === "down" && "Scraper is not running"}
+                    {config.state === "needs_login" && "Facebook session expired"}
+                    {config.state === "never_reported" && "No heartbeat has ever arrived"}
+                  </p>
+                  <p className={`text-xs font-semibold mt-1 leading-relaxed ${
+                    config.state === "down" ? "text-red-700" : "text-amber-700"
+                  }`}>
+                    {config.state === "down" && (
+                      <>
+                        Last heartbeat {humanDuration(config.seconds_since_last_run)} ago — past the{" "}
+                        {humanDuration(config.stale_after_seconds)} a {config.interval_minutes} minute
+                        cycle allows. Nothing here can restart it: the scraper runs on a Windows
+                        machine and this page can only leave instructions for a process that is
+                        still alive. Start it there with{" "}
+                        <code className="bg-red-100 px-1 rounded">run_scraper_hidden.vbs</code>.
+                      </>
+                    )}
+                    {config.state === "needs_login" && (
+                      <>
+                        The scraper is alive and reporting, but Facebook has signed it out, so it is
+                        collecting nothing. This needs a person at a visible browser on the scraper
+                        machine — no button here can clear a checkpoint.
+                      </>
+                    )}
+                    {config.state === "never_reported" && (
+                      <>
+                        The scraper has never checked in. Usually this means{" "}
+                        <code className="bg-amber-100 px-1 rounded">ADMIN_TOKEN</code> is missing or
+                        differs between the API and the scraper&apos;s{" "}
+                        <code className="bg-amber-100 px-1 rounded">backend/.env</code>.
+                      </>
+                    )}
+                  </p>
+                  {config.last_error && (
+                    <p className="text-xs font-mono mt-2 text-gray-600 bg-white/60 rounded px-2 py-1 break-all">
+                      {config.last_error}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Stat cards */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {/* Status */}
-            <div className="bg-white rounded-xl border-2 border-gray-200 p-5">
+            <div className={`bg-white rounded-xl border-2 p-5 ${STATE_UI[config.state].box}`}>
               <div className="flex items-center gap-2 mb-3">
                 <Activity size={13} className="text-gray-400" />
                 <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Status</span>
               </div>
               <div className="flex items-center gap-2">
-                <span
-                  className={`w-2.5 h-2.5 rounded-full ${config.enabled ? "bg-green-500" : "bg-red-500"}`}
-                />
-                <span className={`text-lg font-extrabold ${config.enabled ? "text-green-700" : "text-red-700"}`}>
-                  {config.enabled ? "Running" : "Paused"}
+                <span className={`w-2.5 h-2.5 rounded-full ${STATE_UI[config.state].dot}`} />
+                <span className={`text-lg font-extrabold ${STATE_UI[config.state].text}`}>
+                  {STATE_UI[config.state].label}
                 </span>
               </div>
+              <p className="text-xs font-semibold text-gray-500 mt-1.5 leading-snug">
+                {STATE_UI[config.state].note}
+              </p>
             </div>
 
             {/* Last run */}
@@ -229,12 +359,16 @@ export default function AdminPage() {
                 <Clock size={13} className="text-gray-400" />
                 <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Last Run</span>
               </div>
-              <p className="text-lg font-extrabold text-gray-900">{timeAgo(config.last_run_at)}</p>
-              {config.last_run_at && (
-                <p className="text-xs font-semibold text-gray-400 mt-0.5">
-                  {new Date(config.last_run_at).toLocaleTimeString()}
-                </p>
-              )}
+              <p className={`text-lg font-extrabold ${config.stale ? "text-red-700" : "text-gray-900"}`}>
+                {config.seconds_since_last_run === null
+                  ? "Never"
+                  : `${humanDuration(config.seconds_since_last_run)} ago`}
+              </p>
+              <p className="text-xs font-semibold text-gray-400 mt-0.5">
+                {config.last_run_at
+                  ? `${new Date(config.last_run_at).toLocaleTimeString()} · down after ${humanDuration(config.stale_after_seconds)}`
+                  : "no heartbeat received"}
+              </p>
             </div>
 
             {/* Posts */}
@@ -290,6 +424,26 @@ export default function AdminPage() {
                 </button>
               </div>
 
+              {/* Run now */}
+              <div className="flex items-center justify-between py-4 px-5 bg-gray-50 rounded-xl border border-gray-200">
+                <div>
+                  <p className="text-sm font-extrabold text-gray-900">Run a cycle now</p>
+                  <p className="text-xs font-semibold text-gray-500 mt-0.5">
+                    {config.run_requested_at
+                      ? "Requested — waiting for the scraper to pick it up"
+                      : `Skips the rest of the wait. Lands within about a minute, and only while the scraper is alive.`}
+                  </p>
+                </div>
+                <button
+                  onClick={runNow}
+                  disabled={saving || config.state === "down" || config.state === "never_reported"}
+                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Play size={14} />
+                  {saving ? "Sending…" : "Run now"}
+                </button>
+              </div>
+
               {/* Interval */}
               <div className="flex items-center justify-between py-4 px-5 bg-gray-50 rounded-xl border border-gray-200">
                 <div>
@@ -321,11 +475,11 @@ export default function AdminPage() {
                 <p className="text-xs font-semibold text-amber-700 mt-1 leading-relaxed">
                   The Facebook scraper runs locally on a Windows machine via Playwright (
                   <code className="bg-amber-100 px-1 rounded">fb_group_scraper.py</code>).
-                  These controls are stored in the cloud database and polled by the local
-                  process at the <strong>end of each scrape cycle</strong> — changes are not
-                  instant. To stop immediately, press{" "}
-                  <code className="bg-amber-100 px-1 rounded">Ctrl+C</code> in the terminal.
-                  Auto-refreshes every 30 seconds.
+                  These controls are stored in the cloud database and polled by that process
+                  about <strong>once a minute while it waits</strong>, so a change here lands
+                  within roughly a minute rather than at the end of the cycle. Nothing on this
+                  page can start a scraper that is not running, or clear a Facebook checkpoint —
+                  both need someone at that machine. Auto-refreshes every 30 seconds.
                 </p>
               </div>
             </div>

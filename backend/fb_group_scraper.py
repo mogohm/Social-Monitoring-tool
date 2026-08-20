@@ -33,6 +33,10 @@ SCROLL_ROUNDS = int(os.getenv("SCROLL_ROUNDS", "8"))
 ELEMENT_SETTLE_SEC = float(os.getenv("ELEMENT_SETTLE_SEC", "1.2"))
 INTERVAL_MIN  = int(os.getenv("SCRAPE_INTERVAL_MIN", "60"))
 ADMIN_TOKEN   = os.getenv("ADMIN_TOKEN", "")
+# How often the wait phase checks the admin API for pause / interval / run-now.
+# Short enough that a command from the web lands within about a minute, long
+# enough that a day of waiting is ~1.4k requests rather than tens of thousands.
+CONTROL_POLL_SEC = float(os.getenv("CONTROL_POLL_SEC", "60"))
 SESSION_FILE  = Path(__file__).parent / ".fb_session.json"
 SEEN_FILE     = Path(__file__).parent / ".fb_seen.json"
 
@@ -762,18 +766,38 @@ async def scrape_once(page, seen: set) -> int:
 
 
 # ---------------------------------------------------------------------------
-async def report_cycle(duration_seconds: float, posts_sent: int):
-    """POST heartbeat to admin API after each scrape cycle. Never crashes the scraper."""
+# The run request this process has already acted on, echoed back with the next
+# heartbeat so the server clears that request and not a newer one.
+_acked_run_request = [None]
+
+
+async def report_cycle(duration_seconds: float, posts_sent: int,
+                       status: str = "ok", error: str = ""):
+    """POST heartbeat to admin API after each scrape cycle. Never crashes the scraper.
+
+    `status` is what makes the heartbeat worth having: a bare "I am alive" ping
+    cannot distinguish a healthy cycle from one where Facebook has signed the
+    scraper out, and that is precisely the state someone needs to be told about.
+    """
     if not ADMIN_TOKEN:
         print("  ⏩ Heartbeat ข้าม — ADMIN_TOKEN ไม่ได้ตั้งค่าใน .env")
         return
     url = f"{_ADMIN_BASE}/api/admin/scraper/heartbeat"
-    print(f"  💓 ส่ง Heartbeat → {url}")
+    print(f"  💓 ส่ง Heartbeat ({status}) → {url}")
+    payload = {
+        "last_posts_count": posts_sent,
+        "last_duration_seconds": duration_seconds,
+        "status": status,
+    }
+    if error:
+        payload["error"] = error[:300]
+    if _acked_run_request[0]:
+        payload["acked_run_requested_at"] = _acked_run_request[0]
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url,
-                json={"last_posts_count": posts_sent, "last_duration_seconds": duration_seconds},
+                json=payload,
                 headers={"X-Admin-Token": ADMIN_TOKEN},
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
@@ -782,15 +806,19 @@ async def report_cycle(duration_seconds: float, posts_sent: int):
                     print(f"  ⚠️  Heartbeat API {resp.status}: {body[:120]}")
                 else:
                     print(f"  ✅ Heartbeat OK")
+                    _acked_run_request[0] = None
     except Exception as e:
-        print(f"  ⚠️  report_cycle error: {e}")
+        print(f"  ⚠️  report_cycle error: {type(e).__name__}: {e}")
 
 
-async def fetch_interval() -> tuple[int, bool]:
-    """GET scraper config from admin API. Returns (interval_minutes, enabled).
-    Falls back to (INTERVAL_MIN, True) on any error."""
+async def fetch_config() -> tuple[int, bool, str | None]:
+    """GET scraper config. Returns (interval_minutes, enabled, run_requested_at).
+
+    Falls back to the .env interval and enabled=True on any error: a control
+    plane that cannot be reached must not be able to stop collection.
+    """
     if not ADMIN_TOKEN:
-        return INTERVAL_MIN, True
+        return INTERVAL_MIN, True, None
     url = f"{_ADMIN_BASE}/api/admin/scraper"
     try:
         async with aiohttp.ClientSession() as session:
@@ -801,11 +829,13 @@ async def fetch_interval() -> tuple[int, bool]:
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return int(data.get("interval_minutes", INTERVAL_MIN)), bool(data.get("enabled", True))
-                print(f"  ⚠️  fetch_interval API {resp.status}")
+                    return (int(data.get("interval_minutes", INTERVAL_MIN)),
+                            bool(data.get("enabled", True)),
+                            data.get("run_requested_at"))
+                print(f"  ⚠️  fetch_config API {resp.status}")
     except Exception as e:
-        print(f"  ⚠️  fetch_interval error: {e}")
-    return INTERVAL_MIN, True
+        print(f"  ⚠️  fetch_config error: {type(e).__name__}: {e}")
+    return INTERVAL_MIN, True, None
 
 
 # ---------------------------------------------------------------------------
@@ -935,6 +965,7 @@ async def run():
                     await asyncio.sleep(5)
 
             cycle_start = time.time()
+            cycle_status, cycle_error = "ok", ""
             try:
                 posts_sent = await scrape_once(page, seen)
             except SessionLost as e:
@@ -954,6 +985,7 @@ async def run():
                         print("   ต้องเข้าไปตรวจสอบเอง — อาจติด checkpoint / 2FA "
                               "หรือ Facebook เปลี่ยนโครงสร้างหน้า")
                         posts_sent = 0
+                        cycle_status, cycle_error = "session_expired", str(e2)
                 else:
                     # Retrying a blocked login every interval risks Facebook
                     # locking the account harder, so back off instead.
@@ -961,26 +993,66 @@ async def run():
                     backoff = min(30 * login_failures, 120)
                     print(f"❌ Login ไม่สำเร็จ (ครั้งที่ {login_failures}) — "
                           f"พักยาว {backoff} นาทีก่อนลองใหม่ เพื่อเลี่ยงการโดนล็อกบัญชี")
+                    cycle_status = "login_failed"
+                    cycle_error = f"login failed {login_failures}x, backoff {backoff}m"
+                    # Report before the long sleep, or the status page shows nothing
+                    # at all for up to two hours of backoff — silence, when there is
+                    # something specific to say.
+                    await report_cycle(time.time() - cycle_start, 0,
+                                       cycle_status, cycle_error)
                     await asyncio.sleep(backoff * 60)
                     posts_sent = 0
             else:
                 login_failures = 0
+                if posts_sent == 0:
+                    cycle_status = "no_new"
             duration = time.time() - cycle_start
 
-            await report_cycle(duration, posts_sent)
+            await report_cycle(duration, posts_sent, cycle_status, cycle_error)
 
-            # Wait phase — honour admin pause/interval settings.
-            # If paused, check again every 60s until re-enabled.
-            while True:
-                interval_min, enabled = await fetch_interval()
-                if enabled:
-                    next_t = time.strftime("%H:%M:%S", time.localtime(time.time() + interval_min * 60))
-                    print(f"\n⏰ รอบต่อไป: {next_t}  (ทุก {interval_min} นาที) — กด Ctrl+C เพื่อหยุด")
-                    await asyncio.sleep(interval_min * 60)
-                    break
-                else:
-                    print("⏸ Scraper paused by admin — ตรวจสอบอีก 60 วินาที")
-                    await asyncio.sleep(60)
+            # Wait phase — honour admin pause / interval / run-now.
+            #
+            # Broken into short polls instead of one long sleep: a control
+            # panel whose commands only land after the current interval has
+            # elapsed is not a control panel. At a 30 minute interval, a
+            # pause could otherwise sit unheard for half an hour.
+            await _wait_for_next_cycle()
+
+
+async def _wait_for_next_cycle():
+    """Sleep until the next cycle, watching for pause / interval / run-now."""
+    waited = 0.0
+    announced = None
+    while True:
+        interval_min, enabled, run_req = await fetch_config()
+
+        if run_req and run_req != _acked_run_request[0]:
+            # Someone pressed "run now". Remember which request it was, so the
+            # next heartbeat clears that one and not a later press.
+            _acked_run_request[0] = run_req
+            print("")
+            print("▶️  มีคำสั่ง run-now จากหน้า admin — เริ่มรอบใหม่ทันที")
+            return
+
+        if not enabled:
+            if announced != "paused":
+                print(f"⏸ Scraper paused by admin — ตรวจสอบทุก {CONTROL_POLL_SEC:.0f} วินาที")
+                announced = "paused"
+            await asyncio.sleep(CONTROL_POLL_SEC)
+            waited = 0.0
+            continue
+
+        target = interval_min * 60
+        if waited >= target:
+            return
+        if announced != f"run:{interval_min}":
+            next_t = time.strftime("%H:%M:%S", time.localtime(time.time() + target - waited))
+            print("")
+            print(f"⏰ รอบต่อไป: {next_t}  (ทุก {interval_min} นาที) — กด Ctrl+C เพื่อหยุด")
+            announced = f"run:{interval_min}"
+        nap = min(CONTROL_POLL_SEC, target - waited)
+        await asyncio.sleep(nap)
+        waited += nap
 
 
 if __name__ == "__main__":

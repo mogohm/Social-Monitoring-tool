@@ -245,4 +245,12 @@ class ScraperConfig(Base):
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_posts_count: Mapped[int] = mapped_column(Integer, default=0)
     last_duration_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    # What the last cycle actually did. "enabled" only records what an operator
+    # asked for, so it cannot answer "is it working" — a dead scraper still has
+    # enabled=True. These two, with last_run_at, are what the status page reads.
+    last_status: Mapped[str | None] = mapped_column(String(30))
+    last_error: Mapped[str | None] = mapped_column(String(300))
+    # Set by the admin UI to ask for an immediate cycle; the scraper clears it
+    # once it has acted, so a stale request cannot retrigger forever.
+    run_requested_at: Mapped[datetime | None] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

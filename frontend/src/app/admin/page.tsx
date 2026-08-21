@@ -403,11 +403,13 @@ export default function AdminPage() {
               {/* Toggle enabled */}
               <div className="flex items-center justify-between py-4 px-5 bg-gray-50 rounded-xl border border-gray-200">
                 <div>
-                  <p className="text-sm font-extrabold text-gray-900">Scraper Active</p>
+                  <p className="text-sm font-extrabold text-gray-900">Collection enabled</p>
                   <p className="text-xs font-semibold text-gray-500 mt-0.5">
+                    {/* This row is the instruction, not the state. Saying "running"
+                        here contradicted the banner whenever the process was down. */}
                     {config.enabled
-                      ? "Scraper is running — will scrape on next wake cycle"
-                      : "Scraper is paused — local process will poll every 60 s"}
+                      ? "Set to collect. Whether it is actually collecting is the Status card above."
+                      : "Set to hold. A live process picks this up within about a minute."}
                   </p>
                 </div>
                 <button

@@ -37,6 +37,9 @@ ADMIN_TOKEN   = os.getenv("ADMIN_TOKEN", "")
 # Short enough that a command from the web lands within about a minute, long
 # enough that a day of waiting is ~1.4k requests rather than tens of thousands.
 CONTROL_POLL_SEC = float(os.getenv("CONTROL_POLL_SEC", "60"))
+# Hard bound on one control-plane poll. aiohttp's own timeout does not cover a
+# resolver thread wedged in getaddrinfo, and that is what stalled the wait loop.
+CONTROL_FETCH_TIMEOUT = float(os.getenv("CONTROL_FETCH_TIMEOUT", "20"))
 SESSION_FILE  = Path(__file__).parent / ".fb_session.json"
 SEEN_FILE     = Path(__file__).parent / ".fb_seen.json"
 
@@ -1020,11 +1023,43 @@ async def run():
 
 
 async def _wait_for_next_cycle():
-    """Sleep until the next cycle, watching for pause / interval / run-now."""
-    waited = 0.0
+    """Sleep until the next cycle, watching for pause / interval / run-now.
+
+    The deadline is wall-clock, not an accumulation of completed sleeps. An
+    earlier version added up nap lengths, so a poll that hung added nothing to
+    the total and the wait could never finish: when the machine lost DNS, each
+    lookup wedged for ~25 minutes, six polls covered two and a half hours, and
+    the scraper sat between cycles collecting nothing while its process looked
+    perfectly alive.
+
+    Every poll is also bounded here rather than trusting the HTTP client alone.
+    aiohttp's timeout cancels the request but cannot release a resolver thread
+    stuck in getaddrinfo, and enough stuck threads exhaust the executor that
+    everything else needs.
+    """
+    deadline = None
     announced = None
+    fail_streak = 0
+
     while True:
-        interval_min, enabled, run_req = await fetch_config()
+        try:
+            interval_min, enabled, run_req = await asyncio.wait_for(
+                fetch_config(), timeout=CONTROL_FETCH_TIMEOUT
+            )
+            fail_streak = 0
+        except Exception as e:
+            # Unreachable control plane must not stop collection, and must not
+            # stall it either — fall back to the configured interval and keep
+            # the clock running.
+            fail_streak += 1
+            if fail_streak <= 3 or fail_streak % 10 == 0:
+                print(f"  ⚠️  ติดต่อ admin API ไม่ได้ ({fail_streak} ครั้ง): "
+                      f"{type(e).__name__} — ใช้ค่าใน .env แทน")
+            interval_min, enabled, run_req = INTERVAL_MIN, True, None
+
+        now = time.monotonic()
+        if deadline is None:
+            deadline = now + interval_min * 60
 
         if run_req and run_req != _acked_run_request[0]:
             # Someone pressed "run now". Remember which request it was, so the
@@ -1038,21 +1073,26 @@ async def _wait_for_next_cycle():
             if announced != "paused":
                 print(f"⏸ Scraper paused by admin — ตรวจสอบทุก {CONTROL_POLL_SEC:.0f} วินาที")
                 announced = "paused"
+            deadline = None          # pause ไม่นับเป็นเวลารอ
             await asyncio.sleep(CONTROL_POLL_SEC)
-            waited = 0.0
             continue
 
+        # interval ที่เปลี่ยนกลางคันขยับเส้นตาย ไม่ใช่เริ่มนับใหม่
         target = interval_min * 60
-        if waited >= target:
-            return
         if announced != f"run:{interval_min}":
-            next_t = time.strftime("%H:%M:%S", time.localtime(time.time() + target - waited))
+            next_t = time.strftime("%H:%M:%S", time.localtime(time.time() + max(0.0, deadline - now)))
             print("")
             print(f"⏰ รอบต่อไป: {next_t}  (ทุก {interval_min} นาที) — กด Ctrl+C เพื่อหยุด")
             announced = f"run:{interval_min}"
-        nap = min(CONTROL_POLL_SEC, target - waited)
-        await asyncio.sleep(nap)
-        waited += nap
+
+        remaining = deadline - now
+        if remaining <= 0:
+            return
+
+        # ถ้า API ล้มติดกัน ให้ถามถี่น้อยลง จะได้ไม่ถล่ม resolver ที่กำลังมีปัญหา
+        poll = CONTROL_POLL_SEC * min(2 ** max(0, fail_streak - 1), 15)
+        await asyncio.sleep(min(poll, remaining))
+
 
 
 if __name__ == "__main__":

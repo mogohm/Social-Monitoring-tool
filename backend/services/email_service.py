@@ -223,3 +223,49 @@ async def send_alert_email(
         "matched_keywords": matched_keywords,
     }])
     return bool(results and results[0][0])
+
+
+def _scraper_html(title: str, colour: str, lines: list) -> str:
+    rows = "".join(
+        f'<tr><td style="padding:6px 14px 6px 0;color:#6b7280;font-size:13px;'
+        f'white-space:nowrap">{k}</td>'
+        f'<td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600">{v}</td></tr>'
+        for k, v in lines
+    )
+    return f"""<!DOCTYPE html>
+<html><body style="margin:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <div style="max-width:560px;margin:24px auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb">
+    <div style="background:{colour};padding:18px 24px">
+      <h1 style="color:#fff;margin:0;font-size:18px;font-weight:800">{title}</h1>
+    </div>
+    <div style="padding:20px 24px">
+      <table style="border-collapse:collapse;width:100%">{rows}</table>
+      <a href="https://social-monitoring-tool.vercel.app/admin"
+         style="display:inline-block;margin-top:18px;background:#111827;color:#fff;
+                text-decoration:none;padding:10px 18px;border-radius:9px;
+                font-size:13px;font-weight:700">เปิดหน้า Scraper Admin</a>
+    </div>
+    <div style="padding:12px 24px;background:#f9fafb;color:#9ca3af;font-size:11px">
+      SocialEye Monitor · แจ้งเตือนสถานะตัวเก็บข้อมูล
+    </div>
+  </div>
+</body></html>"""
+
+
+async def send_scraper_status_email(recipients: list, subject: str,
+                                    title: str, colour: str, lines: list) -> bool:
+    """Email about the collector itself, not about a mention.
+
+    Deliberately separate from the alert template: an operator reading "the
+    scraper stopped" should not have to work out which post it is about.
+    """
+    if not recipients:
+        return False
+    messages = [(recipients, subject, _scraper_html(title, colour, lines))]
+    loop = asyncio.get_event_loop()
+    try:
+        results = await loop.run_in_executor(None, lambda: _send_batch_sync(messages))
+    except Exception as exc:
+        print(f"[email] scraper status send failed: {exc}")
+        return False
+    return bool(results and results[0][0])

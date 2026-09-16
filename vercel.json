@@ -6,5 +6,11 @@
     "api/index.py": {
       "maxDuration": 30
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/admin/scraper/health-check",
+      "schedule": "0 * * * *"
+    }
+  ]
 }

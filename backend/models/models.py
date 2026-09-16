@@ -253,4 +253,9 @@ class ScraperConfig(Base):
     # Set by the admin UI to ask for an immediate cycle; the scraper clears it
     # once it has acted, so a stale request cannot retrigger forever.
     run_requested_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # When the last "scraper is down" email went out. Set on the way into an
+    # outage and cleared on recovery, so a week of silence sends one email
+    # rather than one an hour — an alert that repeats gets filtered, and then
+    # the next real outage is invisible too.
+    down_alert_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

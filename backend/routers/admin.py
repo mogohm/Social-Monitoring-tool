@@ -7,6 +7,7 @@ import os
 from backend.models.database import AsyncSessionLocal
 from backend.models.models import ScraperConfig
 from backend.utils.timefmt import utc_iso
+from backend.services.email_service import send_scraper_status_email
 from sqlalchemy import select
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -86,6 +87,7 @@ def _serialize(row: ScraperConfig) -> dict:
         "last_status": row.last_status,
         "last_error": row.last_error,
         "run_requested_at": utc_iso(row.run_requested_at) if row.run_requested_at else None,
+        "down_alert_sent_at": utc_iso(row.down_alert_sent_at) if row.down_alert_sent_at else None,
         "stale_after_seconds": int(max(row.interval_minutes * 60 * STALE_CYCLE_FACTOR,
                                        STALE_FLOOR_SECONDS)),
         "updated_at": utc_iso(row.updated_at) if row.updated_at else None,
@@ -175,3 +177,123 @@ async def scraper_run_now():
         await db.commit()
         await db.refresh(row)
         return _serialize(row)
+
+
+# ─── Health watchdog (called by Vercel Cron) ────────────────────────────────
+
+def _alert_recipients() -> list:
+    """Who hears about an outage.
+
+    Defaults to the mailbox the alerts already send from, so this works with no
+    extra configuration; SCRAPER_ALERT_EMAILS overrides when it should go
+    somewhere else.
+    """
+    raw = os.getenv("SCRAPER_ALERT_EMAILS", "") or os.getenv("SMTP_USER", "")
+    return [a.strip() for a in raw.split(",") if a.strip()]
+
+
+def _authorised_watchdog(x_admin_token: str, authorization: str) -> bool:
+    """Accept the admin header, or the bearer token Vercel Cron sends."""
+    if ADMIN_TOKEN and x_admin_token == ADMIN_TOKEN:
+        return True
+    expected = os.getenv("CRON_SECRET", "") or ADMIN_TOKEN
+    if expected and authorization == f"Bearer {expected}":
+        return True
+    return False
+
+
+def _human_gap(seconds) -> str:
+    if seconds is None:
+        return "ไม่เคยรายงาน"
+    d, rem = divmod(int(seconds), 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d:
+        return f"{d} วัน {h} ชม."
+    if h:
+        return f"{h} ชม. {m} นาที"
+    return f"{m} นาที"
+
+
+# Vercel Cron invokes with GET; POST is kept so it can be triggered by hand.
+@router.get("/scraper/health-check")
+@router.post("/scraper/health-check")
+async def scraper_health_check(
+    x_admin_token: str = Header(default=""),
+    authorization: str = Header(default=""),
+):
+    """Notice that the collector has gone quiet, and say so by email.
+
+    The status page can already show this, but only to someone who opens it.
+    The scraper was down for four days after a Windows Update reboot left the
+    machine at a lock screen, and nothing said a word — which is the whole
+    reason this runs in the cloud instead of next to the scraper.
+
+    One email per outage: sending on the way in, and a second on recovery, is
+    enough to act on. Repeating it hourly trains the recipient to filter it,
+    and then the next outage is invisible again.
+    """
+    if not _authorised_watchdog(x_admin_token, authorization):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    async with AsyncSessionLocal() as db:
+        row = await _get_or_create_default(db)
+        live = _liveness(row)
+        state = live["state"]
+        bad = state in ("down", "never_reported", "needs_login")
+        recipients = _alert_recipients()
+        action = "none"
+
+        if bad and row.down_alert_sent_at is None:
+            titles = {
+                "down": ("🔴 Scraper หยุดทำงาน", "#dc2626"),
+                "needs_login": ("🟠 Scraper ต้อง login Facebook ใหม่", "#d97706"),
+                "never_reported": ("⚪ Scraper ไม่เคยรายงานตัว", "#6b7280"),
+            }
+            title, colour = titles[state]
+            hints = {
+                "down": "process ไม่ได้รันอยู่ — เปิดด้วย run_scraper_hidden.vbs บนเครื่องที่ติดตั้งไว้",
+                "needs_login": "ยังรายงานอยู่แต่ Facebook เตะออก — ต้อง login ด้วยมือผ่าน browser ที่เห็นหน้าต่าง",
+                "never_reported": "ตรวจว่า ADMIN_TOKEN ฝั่ง API กับใน backend/.env ตรงกันหรือไม่",
+            }
+            sent = await send_scraper_status_email(
+                recipients,
+                subject=f"⚠️ [SocialEye] {title}",
+                title=title,
+                colour=colour,
+                lines=[
+                    ("สถานะ", state),
+                    ("เงียบมาแล้ว", _human_gap(live["seconds_since_last_run"])),
+                    ("heartbeat ล่าสุด", utc_iso(row.last_run_at) if row.last_run_at else "ไม่เคย"),
+                    ("รอบที่ตั้งไว้", f"{row.interval_minutes} นาที"),
+                    ("สาเหตุที่รายงานล่าสุด", row.last_status or "—"),
+                    ("ต้องทำอะไร", hints[state]),
+                ],
+            )
+            if sent:
+                row.down_alert_sent_at = datetime.utcnow()
+                await db.commit()
+                action = "alert_sent"
+            else:
+                # Leave the marker unset so the next run retries rather than
+                # recording an alert that never reached anyone.
+                action = "alert_failed"
+
+        elif not bad and row.down_alert_sent_at is not None:
+            await send_scraper_status_email(
+                recipients,
+                subject="✅ [SocialEye] Scraper กลับมาทำงานแล้ว",
+                title="✅ Scraper กลับมาทำงานแล้ว",
+                colour="#16a34a",
+                lines=[
+                    ("สถานะ", state),
+                    ("เงียบไปทั้งหมด", _human_gap(
+                        (datetime.utcnow() - row.down_alert_sent_at).total_seconds())),
+                    ("เก็บได้รอบล่าสุด", f"{row.last_posts_count} โพสต์"),
+                ],
+            )
+            row.down_alert_sent_at = None
+            await db.commit()
+            action = "recovery_sent"
+
+        return {"state": state, "action": action, "recipients": recipients}

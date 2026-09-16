@@ -219,6 +219,7 @@ def _human_gap(seconds) -> str:
 @router.get("/scraper/health-check")
 @router.post("/scraper/health-check")
 async def scraper_health_check(
+    test: int = 0,
     x_admin_token: str = Header(default=""),
     authorization: str = Header(default=""),
 ):
@@ -235,6 +236,26 @@ async def scraper_health_check(
     """
     if not _authorised_watchdog(x_admin_token, authorization):
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    recipients_now = _alert_recipients()
+    if test:
+        # Proves the whole path — template, SMTP, inbox — without waiting for a
+        # real outage. An alert nobody has ever seen arrive is not an alert.
+        # Deliberately does not touch down_alert_sent_at, so a test cannot
+        # suppress the next genuine warning.
+        ok = await send_scraper_status_email(
+            recipients_now,
+            subject="🧪 [SocialEye] ทดสอบระบบแจ้งเตือนสถานะ Scraper",
+            title="🧪 ทดสอบระบบแจ้งเตือน",
+            colour="#2563eb",
+            lines=[
+                ("ข้อความนี้คือ", "การทดสอบ ไม่ใช่เหตุขัดข้องจริง"),
+                ("ถ้าได้รับอีเมลนี้", "ระบบจะแจ้งได้จริงเมื่อ scraper หยุดทำงาน"),
+                ("ตรวจทุกวัน", "09:00 น. (เวลาไทย) จาก Vercel Cron"),
+            ],
+        )
+        return {"action": "test_sent" if ok else "test_failed",
+                "recipients": recipients_now}
 
     async with AsyncSessionLocal() as db:
         row = await _get_or_create_default(db)

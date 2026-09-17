@@ -929,8 +929,16 @@ async def run():
         await asyncio.sleep(6)
 
         if "login" in page.url.lower():
-            print("❌ Redirect ไป login — ลบ session แล้วรันใหม่")
-            SESSION_FILE.unlink(missing_ok=True)
+            # Startup redirect means the session on disk is dead. Renaming rather
+            # than deleting keeps it for diagnosis, and cannot clobber a good file
+            # someone restores while this is running.
+            print("❌ Redirect ไป login — session ใช้ไม่ได้")
+            if SESSION_FILE.exists():
+                stale = SESSION_FILE.with_suffix(".json.stale")
+                stale.unlink(missing_ok=True)
+                SESSION_FILE.rename(stale)
+                print(f"   ย้ายไฟล์เดิมไปเป็น {stale.name} แล้ว")
+            print(f"   login ใหม่ด้วย: {Path(__file__).parent / 'fb_login.py'}")
             await browser.close()
             return
 
@@ -976,7 +984,16 @@ async def run():
                 # retry rather than reporting a healthy-looking empty cycle.
                 print(f"\n🚫 {e}")
                 print("🔑 พยายาม login ใหม่แล้วลองอีกครั้ง...")
-                SESSION_FILE.unlink(missing_ok=True)
+                # The session file is NOT deleted here. This branch runs every
+                # cycle once Facebook signs the scraper out, and without stored
+                # credentials it cannot fix anything — so deleting only destroys
+                # whatever is on disk. That included the file a person had just
+                # restored with fb_login.py: the login worked, this still-running
+                # process wiped it minutes later, and the outage carried on as if
+                # nothing had been done.
+                #
+                # A stale file is harmless: startup loads it and is_logged_in()
+                # checks it, so a dead session is detected rather than trusted.
                 if await do_login(page):
                     await ctx.storage_state(path=str(SESSION_FILE))
                     await page.goto(group_url, wait_until="domcontentloaded")

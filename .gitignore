@@ -38,3 +38,4 @@ backend/scraper_err.log
 backend/debug_engagement.json
 backend/debug_engagement_out.txt
 backend/debug_engagement_err.txt
+backend/.fb_session.json.stale

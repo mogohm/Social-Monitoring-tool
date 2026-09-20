@@ -42,6 +42,7 @@ CONTROL_POLL_SEC = float(os.getenv("CONTROL_POLL_SEC", "60"))
 CONTROL_FETCH_TIMEOUT = float(os.getenv("CONTROL_FETCH_TIMEOUT", "20"))
 SESSION_FILE  = Path(__file__).parent / ".fb_session.json"
 SEEN_FILE     = Path(__file__).parent / ".fb_seen.json"
+LOCK_FILE     = Path(__file__).parent / ".scraper.lock"
 
 # Derive admin API base URL from WEBHOOK_URL
 # e.g. https://socialeye-api.vercel.app/api/webhook/mention → https://socialeye-api.vercel.app
@@ -1112,21 +1113,75 @@ async def _wait_for_next_cycle():
 
 
 
+def _pid_alive(pid: int) -> bool:
+    """True ถ้า process นั้นยังอยู่จริง"""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True        # มีอยู่ แต่เราไม่มีสิทธิ์ส่งสัญญาณ
+    except OSError:
+        return False
+    return True
+
+
+def acquire_single_instance() -> bool:
+    """กันไม่ให้มี scraper สองตัวพร้อมกัน
+
+    สองตัวจะเขียน .fb_seen.json ทับกันและยิง Facebook เป็นสองเท่า ซึ่งเป็น
+    พฤติกรรมที่เสี่ยงโดนบล็อกที่สุดเท่าที่โปรเจกต์นี้ทำได้ ความเสี่ยงนี้เกิดจริง
+    ตอนย้ายจาก Startup folder ไป Task Scheduler เพราะถ้าลืมถอดอันเก่าออก
+    ทั้งสองทางจะเปิด scraper คนละตัว
+    """
+    if LOCK_FILE.exists():
+        try:
+            pid = int(LOCK_FILE.read_text(encoding="utf-8").strip() or 0)
+        except Exception:
+            pid = 0
+        # ล็อกค้างจากรอบที่ถูกฆ่าไม่ให้ลบไฟล์ ไม่ควรกันตัวใหม่ตลอดไป
+        if pid and pid != os.getpid() and _pid_alive(pid):
+            print(f"⛔ มี scraper ทำงานอยู่แล้ว (pid={pid}) — ตัวนี้จะไม่เริ่ม")
+            print(f"   ถ้าแน่ใจว่าไม่มีจริง ลบไฟล์ {LOCK_FILE.name} แล้วลองใหม่")
+            return False
+        print(f"🔓 พบล็อกค้างจาก pid={pid} ที่ไม่มีอยู่แล้ว — เขียนทับ")
+    try:
+        LOCK_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    except Exception as e:
+        print(f"⚠️  เขียนไฟล์ล็อกไม่ได้ ({e}) — รันต่อโดยไม่มีการกันซ้ำ")
+    return True
+
+
+def release_single_instance():
+    try:
+        if LOCK_FILE.exists() and LOCK_FILE.read_text(encoding="utf-8").strip() == str(os.getpid()):
+            LOCK_FILE.unlink()
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    while True:
-        try:
-            asyncio.run(run())
-            break  # run() returned normally (e.g. session expired) — stop
-        except KeyboardInterrupt:
-            print("\n\n🛑 หยุดแล้ว")
-            break
-        except BrowserDead as e:
-            print(f"\n💀 Browser ตาย: {e}")
-            print("🔄 เปิด browser ใหม่ใน 15 วินาที...")
-            time.sleep(15)
-        except Exception as e:
-            print(f"\n💥 Scraper crash: {e}")
-            print("🔄 รีสตาร์ท browser ใน 15 วินาที...")
-            time.sleep(15)
+    if not acquire_single_instance():
+        sys.exit(0)
+
+    try:
+        while True:
+            try:
+                asyncio.run(run())
+                break  # run() returned normally (e.g. session expired) — stop
+            except KeyboardInterrupt:
+                print("\n\n🛑 หยุดแล้ว")
+                break
+            except BrowserDead as e:
+                print(f"\n💀 Browser ตาย: {e}")
+                print("🔄 เปิด browser ใหม่ใน 15 วินาที...")
+                time.sleep(15)
+            except Exception as e:
+                print(f"\n💥 Scraper crash: {e}")
+                print("🔄 รีสตาร์ท browser ใน 15 วินาที...")
+                time.sleep(15)
+    finally:
+        release_single_instance()
+

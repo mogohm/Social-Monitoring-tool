@@ -258,4 +258,7 @@ class ScraperConfig(Base):
     # rather than one an hour — an alert that repeats gets filtered, and then
     # the next real outage is invisible too.
     down_alert_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Every watchdog run stamps this, so a cron that silently stopped firing is
+    # visible instead of looking identical to "nothing has gone wrong yet".
+    last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

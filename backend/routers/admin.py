@@ -88,6 +88,7 @@ def _serialize(row: ScraperConfig) -> dict:
         "last_error": row.last_error,
         "run_requested_at": utc_iso(row.run_requested_at) if row.run_requested_at else None,
         "down_alert_sent_at": utc_iso(row.down_alert_sent_at) if row.down_alert_sent_at else None,
+        "last_health_check_at": utc_iso(row.last_health_check_at) if row.last_health_check_at else None,
         "stale_after_seconds": int(max(row.interval_minutes * 60 * STALE_CYCLE_FACTOR,
                                        STALE_FLOOR_SECONDS)),
         "updated_at": utc_iso(row.updated_at) if row.updated_at else None,
@@ -192,12 +193,29 @@ def _alert_recipients() -> list:
     return [a.strip() for a in raw.split(",") if a.strip()]
 
 
-def _authorised_watchdog(x_admin_token: str, authorization: str) -> bool:
-    """Accept the admin header, or the bearer token Vercel Cron sends."""
+def _authorised_watchdog(x_admin_token: str, authorization: str,
+                        x_vercel_cron: str = "") -> bool:
+    """Who may run the watchdog.
+
+    Vercel only attaches `Authorization: Bearer $CRON_SECRET` when CRON_SECRET
+    is configured. It was not, so every cron invocation arrived with no
+    credentials at all and was rejected — the scraper sat down for 34 hours
+    while the thing built to report it answered 401 to itself, silently.
+
+    Requiring another environment variable to be set correctly is what failed
+    here, and the same mismatch cost four days earlier with ADMIN_TOKEN. So the
+    header Vercel stamps on cron requests is accepted on its own. It is
+    forgeable, and that is a deliberate trade: the most an forged call achieves
+    is reading whether the scraper is up and possibly sending one already
+    deduplicated email to a fixed address, against an alerting system that
+    cannot fail closed by being misconfigured.
+    """
     if ADMIN_TOKEN and x_admin_token == ADMIN_TOKEN:
         return True
     expected = os.getenv("CRON_SECRET", "") or ADMIN_TOKEN
     if expected and authorization == f"Bearer {expected}":
+        return True
+    if x_vercel_cron:
         return True
     return False
 
@@ -222,6 +240,7 @@ async def scraper_health_check(
     test: int = 0,
     x_admin_token: str = Header(default=""),
     authorization: str = Header(default=""),
+    x_vercel_cron: str = Header(default=""),
 ):
     """Notice that the collector has gone quiet, and say so by email.
 
@@ -234,7 +253,7 @@ async def scraper_health_check(
     enough to act on. Repeating it hourly trains the recipient to filter it,
     and then the next outage is invisible again.
     """
-    if not _authorised_watchdog(x_admin_token, authorization):
+    if not _authorised_watchdog(x_admin_token, authorization, x_vercel_cron):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     recipients_now = _alert_recipients()
@@ -259,6 +278,12 @@ async def scraper_health_check(
 
     async with AsyncSessionLocal() as db:
         row = await _get_or_create_default(db)
+        # Stamped on every run so "is the watchdog itself alive" is a fact that
+        # can be read, not an assumption. Without it the only evidence that cron
+        # was broken was an email that never came — which looks exactly like
+        # nothing being wrong.
+        row.last_health_check_at = datetime.utcnow()
+        await db.commit()
         live = _liveness(row)
         state = live["state"]
         bad = state in ("down", "never_reported", "needs_login")

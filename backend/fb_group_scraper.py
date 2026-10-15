@@ -40,6 +40,13 @@ CONTROL_POLL_SEC = float(os.getenv("CONTROL_POLL_SEC", "60"))
 # Hard bound on one control-plane poll. aiohttp's own timeout does not cover a
 # resolver thread wedged in getaddrinfo, and that is what stalled the wait loop.
 CONTROL_FETCH_TIMEOUT = float(os.getenv("CONTROL_FETCH_TIMEOUT", "20"))
+# How many times a lost session may be answered by relaunching the browser and
+# reloading the file before concluding a person is actually needed. Bounded so
+# a genuinely dead session cannot become a relaunch loop.
+MAX_SESSION_RELOADS = 3
+# Module level on purpose: a BrowserDead relaunch re-enters run(), so a counter
+# local to it would reset every attempt and never reach the limit.
+session_reloads = [0]
 SESSION_FILE  = Path(__file__).parent / ".fb_session.json"
 SEEN_FILE     = Path(__file__).parent / ".fb_seen.json"
 LOCK_FILE     = Path(__file__).parent / ".scraper.lock"
@@ -1008,6 +1015,21 @@ async def run():
                         posts_sent = 0
                         cycle_status, cycle_error = "session_expired", str(e2)
                 else:
+                    # Before giving up: the context in memory can go bad while
+                    # the file on disk is still a valid session. That happened —
+                    # the scraper sat in backoff for 34 hours, and loading the
+                    # very same file in a fresh browser signed straight in. A
+                    # relaunch is cheap and fixes that case; only when it does
+                    # not should this escalate to waiting for a human.
+                    if SESSION_FILE.exists() and session_reloads[0] < MAX_SESSION_RELOADS:
+                        session_reloads[0] += 1
+                        print(f"🔄 ลองเปิด browser ใหม่แล้วโหลด session จากไฟล์ "
+                              f"(ครั้งที่ {session_reloads[0]}/{MAX_SESSION_RELOADS})")
+                        await report_cycle(time.time() - cycle_start, 0,
+                                           "session_reload",
+                                           f"relaunching browser, attempt {session_reloads[0]}")
+                        raise BrowserDead("session lost — reloading saved session")
+
                     # Retrying a blocked login every interval risks Facebook
                     # locking the account harder, so back off instead.
                     login_failures += 1
@@ -1025,6 +1047,7 @@ async def run():
                     posts_sent = 0
             else:
                 login_failures = 0
+                session_reloads[0] = 0
                 if posts_sent == 0:
                     cycle_status = "no_new"
             duration = time.time() - cycle_start

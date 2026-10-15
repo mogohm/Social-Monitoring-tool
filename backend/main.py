@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE scraper_configs ADD COLUMN IF NOT EXISTS last_error       VARCHAR(300)",
             "ALTER TABLE scraper_configs ADD COLUMN IF NOT EXISTS run_requested_at TIMESTAMP",
             "ALTER TABLE scraper_configs ADD COLUMN IF NOT EXISTS down_alert_sent_at TIMESTAMP",
+            "ALTER TABLE scraper_configs ADD COLUMN IF NOT EXISTS last_health_check_at TIMESTAMP",
         ]:
             try:
                 await conn.execute(text(col_sql))

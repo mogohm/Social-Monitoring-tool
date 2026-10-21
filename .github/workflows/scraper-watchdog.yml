@@ -1,0 +1,57 @@
+name: Scraper watchdog
+
+# ทำไมถึงย้ายมาอยู่ที่นี่:
+# เดิมใช้ Vercel Cron ซึ่งไม่เคยถูกเรียกเลยสักครั้งใน 6 วัน — last_health_check_at
+# ค้างอยู่ที่เวลาที่เรายิงเองด้วยมือ ตลอดเวลานั้น scraper หยุดเก็บข้อมูลและไม่มีอะไร
+# แจ้งออกมา ระบบเฝ้าระวังที่ไม่เคยทำงานนั้นแย่กว่าไม่มี เพราะทำให้คิดว่ามีคนดูอยู่
+#
+# GitHub Actions รันบนโครงสร้างที่แยกจากทั้งเครื่องที่ scrape และ Vercel จึงไม่ล้ม
+# ไปพร้อมกับสิ่งที่มันเฝ้าอยู่
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:        # กดรันเองได้จากหน้า Actions
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ask the API whether the collector is still alive
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          URL="https://socialeye-api.vercel.app/api/admin/scraper/health-check"
+
+          # ใช้ ADMIN_TOKEN ถ้าตั้ง secret ไว้ ไม่งั้นใช้ header ที่ endpoint ยอมรับ
+          # เพื่อไม่ให้ระบบเฝ้าระวังพังเพราะลืมตั้งค่า ซึ่งเป็นสาเหตุที่ทำให้
+          # ของเดิมเงียบมาแล้วสองครั้ง
+          if [ -n "$ADMIN_TOKEN" ]; then
+            AUTH=(-H "X-Admin-Token: $ADMIN_TOKEN")
+          else
+            echo "::warning::ไม่ได้ตั้ง secret ADMIN_TOKEN — ใช้ header สำรองแทน"
+            AUTH=(-H "x-vercel-cron: 1")
+          fi
+
+          code=$(curl -sS -o response.json -w '%{http_code}' --max-time 60 "${AUTH[@]}" "$URL" || echo 000)
+          echo "HTTP $code"
+          cat response.json || true
+          echo
+
+          if [ "$code" != "200" ]; then
+            echo "::error::health-check ตอบ $code — ระบบแจ้งเตือนใช้งานไม่ได้"
+            exit 1
+          fi
+
+          # ให้ผลลัพธ์อ่านได้จากหน้า Actions โดยไม่ต้องเปิด log
+          python3 - <<'PY'
+          import json
+          d = json.load(open("response.json"))
+          state, action = d.get("state"), d.get("action")
+          print(f"state={state} action={action}")
+          if action in ("alert_sent", "recovery_sent"):
+              print(f"::notice::ส่งอีเมลแจ้งเตือนแล้ว ({action}, state={state})")
+          elif state not in ("running", "paused"):
+              print(f"::warning::scraper อยู่ในสถานะ {state} (แจ้งไปแล้วก่อนหน้านี้)")
+          PY

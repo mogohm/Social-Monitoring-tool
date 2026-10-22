@@ -20,6 +20,7 @@ session_expired / login_failed — คือ Facebook เตะ scraper ออ�
 จนกว่าจะเริ่มใหม่อยู่ดี
 """
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -32,7 +33,9 @@ _spec = importlib.util.spec_from_file_location("fbs", _HERE / "fb_group_scraper.
 fbs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fbs)
 
-WAIT_MINUTES = 15
+# รอได้นานขึ้นผ่าน env — 15 นาทีเคยหมดเวลาไปก่อนที่คนจะกลับมาเห็นหน้าต่าง
+# แล้วต้องมาเริ่มใหม่ทั้งรอบ
+WAIT_MINUTES = int(os.getenv("FB_LOGIN_WAIT_MIN", "60"))
 STABLE_CHECKS = 3    # ต้องผ่านติดกัน 3 ครั้ง กัน state ครึ่ง ๆ ระหว่าง redirect
 
 
